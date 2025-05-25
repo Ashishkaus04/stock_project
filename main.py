@@ -9,7 +9,7 @@ def main():
     db.create_tables()
 
     root = tk.Tk()
-    root.title("StockMaster - Inventory App")
+    root.title("MVD Stock Manager")
     root.geometry("800x400")
 
     columns = ("ID", "Name", "Category", "Quantity", "Min Stock")
