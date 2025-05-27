@@ -100,7 +100,7 @@ def show_in_stock(root, main_tree=None):
 
         update_win = tk.Toplevel(win)
         update_win.title(f"Update Product - {item_name}")
-        update_win.geometry("400x400")
+        update_win.geometry("400x500")  # Increased height for new fields
         update_win.resizable(False, False)
 
         # Center the window
@@ -153,6 +153,24 @@ def show_in_stock(root, main_tree=None):
         qty_entry.focus_set()
         qty_entry.select_range(0, tk.END)
 
+        # Seller Information section
+        seller_frame = tk.LabelFrame(frame, text="Seller Information", padx=10, pady=10)
+        seller_frame.pack(fill="x", pady=(0, 15))
+
+        # Seller Name
+        seller_name_frame = tk.Frame(seller_frame)
+        seller_name_frame.pack(fill="x", pady=2)
+        tk.Label(seller_name_frame, text="Name:", width=10, anchor="w").pack(side="left")
+        seller_name_entry = tk.Entry(seller_name_frame)
+        seller_name_entry.pack(side="left", fill="x", expand=True)
+
+        # Invoice Number
+        invoice_frame = tk.Frame(seller_frame)
+        invoice_frame.pack(fill="x", pady=2)
+        tk.Label(invoice_frame, text="Invoice:", width=10, anchor="w").pack(side="left")
+        invoice_entry = tk.Entry(invoice_frame)
+        invoice_entry.pack(side="left", fill="x", expand=True)
+
         # Preview section
         preview_frame = tk.LabelFrame(frame, text="Preview", padx=10, pady=10)
         preview_frame.pack(fill="x", pady=(0, 15))
@@ -184,8 +202,19 @@ def show_in_stock(root, main_tree=None):
                 if new_qty < 0:
                     messagebox.showerror("Error", "Final quantity cannot be negative")
                     return
-                    
-                db.update_product_quantity(item_id, new_qty)
+                
+                # Get seller information
+                seller_name = seller_name_entry.get().strip()
+                invoice_number = invoice_entry.get().strip()
+                
+                # Update quantity with seller information
+                db.update_product_quantity(
+                    item_id, 
+                    new_qty,
+                    seller_name if seller_name else None,
+                    invoice_number if invoice_number else None
+                )
+                
                 messagebox.showinfo("Success", f"Quantity updated to {new_qty}")
                 update_win.destroy()
                 populate_in_stock()
@@ -261,7 +290,7 @@ def show_out_of_stock(root, main_tree=None):
 
         remove_win = tk.Toplevel(win)
         remove_win.title(f"Remove Stock - {item_name}")
-        remove_win.geometry("300x200")
+        remove_win.geometry("400x500")  # Increased height for buyer information
         remove_win.resizable(False, False)
 
         # Center the window
@@ -287,6 +316,24 @@ def show_out_of_stock(root, main_tree=None):
         qty_entry.pack(side="left")
         qty_entry.focus_set()
         qty_entry.select_range(0, tk.END)
+
+        # Buyer Information section
+        buyer_frame = tk.LabelFrame(frame, text="Buyer Information", padx=10, pady=10)
+        buyer_frame.pack(fill="x", pady=(0, 15))
+
+        # Buyer Name
+        buyer_name_frame = tk.Frame(buyer_frame)
+        buyer_name_frame.pack(fill="x", pady=2)
+        tk.Label(buyer_name_frame, text="Name:", width=10, anchor="w").pack(side="left")
+        buyer_name_entry = tk.Entry(buyer_name_frame)
+        buyer_name_entry.pack(side="left", fill="x", expand=True)
+
+        # Invoice Number
+        invoice_frame = tk.Frame(buyer_frame)
+        invoice_frame.pack(fill="x", pady=2)
+        tk.Label(invoice_frame, text="Invoice:", width=10, anchor="w").pack(side="left")
+        invoice_entry = tk.Entry(invoice_frame)
+        invoice_entry.pack(side="left", fill="x", expand=True)
 
         # Preview
         preview_label = tk.Label(frame, text=f"Remaining: {current_qty}")
@@ -318,7 +365,18 @@ def show_out_of_stock(root, main_tree=None):
                     messagebox.showerror("Error", "Cannot remove more than available stock")
                     return
 
-                db.update_product_quantity(item_id, new_qty)
+                # Get buyer information
+                buyer_name = buyer_name_entry.get().strip()
+                invoice_number = invoice_entry.get().strip()
+
+                # Update quantity with buyer information
+                db.update_product_quantity(
+                    item_id,
+                    new_qty,
+                    buyer_name if buyer_name else None,
+                    invoice_number if invoice_number else None
+                )
+
                 messagebox.showinfo("Success", f"Removed {remove_qty} items. New quantity: {new_qty}")
                 remove_win.destroy()
                 populate_out_of_stock()
@@ -380,7 +438,7 @@ def show_out_of_stock(root, main_tree=None):
 def show_quantity_history(root, item_id, item_name):
     win = tk.Toplevel(root)
     win.title(f"Quantity History - {item_name}")
-    win.geometry("600x400")
+    win.geometry("800x400")  # Increased width to accommodate new columns
     win.resizable(False, False)
 
     # Center the window
@@ -443,12 +501,24 @@ def show_quantity_history(root, item_id, item_name):
     history_frame = tk.LabelFrame(frame, text="Quantity History", padx=10, pady=10)
     history_frame.pack(fill="both", expand=True)
 
-    # Create Treeview for history
-    history_columns = ("Date", "Old Quantity", "New Quantity", "Change")
+    # Create Treeview for history with seller information
+    history_columns = ("Date", "Old Quantity", "New Quantity", "Change", "Seller", "Invoice")
     history_tree = ttk.Treeview(history_frame, columns=history_columns, show="headings", height=10)
+    
+    # Configure column widths
+    column_widths = {
+        "Date": 150,
+        "Old Quantity": 100,
+        "New Quantity": 100,
+        "Change": 80,
+        "Seller": 120,
+        "Invoice": 100
+    }
+    
     for col in history_columns:
         history_tree.heading(col, text=col)
-        history_tree.column(col, width=100)
+        history_tree.column(col, width=column_widths.get(col, 100))
+    
     history_tree.pack(fill="both", expand=True)
 
     # Add scrollbar to history tree
@@ -458,7 +528,7 @@ def show_quantity_history(root, item_id, item_name):
 
     # Populate history
     history = db.get_quantity_history(item_id)
-    for old_qty, new_qty, change_date in history:
+    for old_qty, new_qty, change_date, seller_name, invoice_number in history:
         change = new_qty - old_qty
         change_text = f"{'+' if change > 0 else ''}{change}"
         # Format the date string
@@ -468,11 +538,18 @@ def show_quantity_history(root, item_id, item_name):
             except ValueError:
                 pass
         date_str = change_date.strftime("%Y-%m-%d %H:%M") if hasattr(change_date, 'strftime') else str(change_date)
+        
+        # Format seller information
+        seller_name = seller_name or "N/A"
+        invoice_number = invoice_number or "N/A"
+        
         history_tree.insert("", "end", values=(
             date_str,
             old_qty,
             new_qty,
-            change_text
+            change_text,
+            seller_name,
+            invoice_number
         ))
 
     # Only show the Close button

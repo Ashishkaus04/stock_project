@@ -24,7 +24,7 @@ def create_tables():
         )
     """)
     
-    # Create quantity_history table
+    # Create quantity_history table without contact fields
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS quantity_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,6 +32,8 @@ def create_tables():
             old_quantity INTEGER,
             new_quantity INTEGER,
             change_date datetime,
+            seller_name TEXT,
+            invoice_number TEXT,
             FOREIGN KEY (product_id) REFERENCES products (id)
         )
     """)
@@ -72,7 +74,7 @@ def add_product(name, category, quantity, min_stock):
     finally:
         conn.close()
 
-def update_product_quantity(product_id, new_quantity):
+def update_product_quantity(product_id, new_quantity, seller_name=None, invoice_number=None):
     conn = connect_db()
     cursor = conn.cursor()
     
@@ -87,13 +89,17 @@ def update_product_quantity(product_id, new_quantity):
         # Update product quantity
         cursor.execute("UPDATE products SET quantity = ? WHERE id = ?", (new_quantity, product_id))
         
-        # Record the change in history
+        # Record the change in history with seller information
         current_time = datetime.now()
         print(f"Recording history: product_id={product_id}, old={old_quantity}, new={new_quantity}, time={current_time}")
         cursor.execute("""
-            INSERT INTO quantity_history (product_id, old_quantity, new_quantity, change_date)
-            VALUES (?, ?, ?, ?)
-        """, (product_id, old_quantity, new_quantity, current_time))
+            INSERT INTO quantity_history (
+                product_id, old_quantity, new_quantity, change_date,
+                seller_name, invoice_number
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (product_id, old_quantity, new_quantity, current_time,
+              seller_name, invoice_number))
         
         conn.commit()
     except Exception as e:
@@ -115,7 +121,8 @@ def get_quantity_history(product_id):
     
     try:
         cursor.execute("""
-            SELECT old_quantity, new_quantity, change_date 
+            SELECT old_quantity, new_quantity, change_date,
+                   seller_name, invoice_number
             FROM quantity_history 
             WHERE product_id = ? 
             ORDER BY change_date DESC

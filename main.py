@@ -62,24 +62,26 @@ def main():
             # Set start_dt to 00:00:00 and end_dt to 23:59:59
             start_dt = datetime.combine(start_date, time.min)
             end_dt = datetime.combine(end_date, time.max)
+            # Suggest file name with date range
+            suggested_name = f"exported_{start_date.strftime('%Y-%m-%d')}_to_{end_date.strftime('%Y-%m-%d')}.csv"
             # Ask for file path
             file_path = tk.filedialog.asksaveasfilename(
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                initialfile="exported_history.csv"
+                initialfile=suggested_name
             )
             if not file_path:
                 return
             import csv
             with open(file_path, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(["Product Name", "Category", "Date", "Old Quantity", "New Quantity", "Change"])
+                writer.writerow(["Product Name", "Category", "Date", "Old Quantity", "New Quantity", "Change", "Name", "Invoice Number"])
                 for sel in selected:
                     item = tree.item(sel)['values']
                     item_id = item[0]
                     product = db.get_product_details(item_id)
                     history = db.get_quantity_history(item_id)
-                    for old_qty, new_qty, change_date in history:
+                    for old_qty, new_qty, change_date, name, invoice_number in history:
                         # Filter by date range
                         if isinstance(change_date, str):
                             try:
@@ -99,12 +101,41 @@ def main():
                             date_str,
                             old_qty,
                             new_qty,
-                            change_text
+                            change_text,
+                            name or "N/A",
+                            invoice_number or "N/A"
                         ])
             tk.messagebox.showinfo("Success", f"History exported successfully to:\n{file_path}")
         tk.Button(prompt, text="OK", command=on_ok).grid(row=2, column=0, columnspan=2, pady=10)
 
     tk.Button(btn_frame, text="Export to CSV", command=export_selected_to_csv).pack(side="left", padx=5)
+
+    def print_stock():
+        # Ask for file path
+        from datetime import datetime
+        suggested_name = f"stock_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+        file_path = tk.filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile=suggested_name
+        )
+        if not file_path:
+            return
+        import csv
+        conn = db.connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, category, quantity FROM products")
+        rows = cursor.fetchall()
+        conn.close()
+        with open(file_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Product Name", "Category", "Quantity"])
+            for row in rows:
+                writer.writerow(row)
+        tk.messagebox.showinfo("Success", f"Stock exported successfully to:\n{file_path}")
+
+    # Add button to UI
+    tk.Button(btn_frame, text="Print Stock", command=print_stock).pack(side="left", padx=5)
 
     ui.populate_tree(tree)
     root.mainloop()
