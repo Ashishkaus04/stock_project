@@ -8,11 +8,131 @@ import csv
 import requests
 import subprocess
 import sys
+import os
+import tempfile
+import json
+import shutil
 
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
+# Auto-update configuration
+CURRENT_VERSION = "1.0" # !!! IMPORTANT: Update this version number for each new release
+VERSION_URL = "https://stock-project-nnei.onrender.com/static/version.json"
+DOWNLOAD_URL = "https://stock-project-nnei.onrender.com/static/main.exe"
+
+# Define temporary update file name
+UPDATE_TEMP_FILE = "main.exe.temp"
+OLD_EXE_FILE = "main.exe.old"
+
+def check_for_updates():
+    try:
+        response = requests.get(VERSION_URL)
+        response.raise_for_status() # Raise an exception for bad status codes
+        version_info = response.json()
+        latest_version = version_info.get("latest_version")
+
+        if latest_version and latest_version > CURRENT_VERSION:
+            print(f"New version ({latest_version}) available. Current version: {CURRENT_VERSION}")
+            # Download the new executable
+            download_update(latest_version)
+            return True # Indicate that an update was found and downloaded
+        else:
+            print("Application is up to date.")
+            return False # Indicate no update was found
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error checking for updates: {e}")
+        return False
+    except json.JSONDecodeError:
+        print("Error decoding version.json")
+        return False
+    except Exception as e:
+        print(f"An unexpected error occurred during update check: {e}")
+        return False
+
+def download_update(version):
+    try:
+        print(f"Downloading update version {version} from {DOWNLOAD_URL}")
+        response = requests.get(DOWNLOAD_URL, stream=True)
+        response.raise_for_status()
+
+        # Get the directory of the currently running executable
+        app_dir = os.path.dirname(sys.executable)
+        new_exe_path = os.path.join(app_dir, UPDATE_TEMP_FILE)
+
+        with open(new_exe_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        print(f"Update downloaded successfully to {new_exe_path}")
+        messagebox.showinfo("Update Downloaded",
+                            f"A new version ({version}) has been downloaded.\n" +
+                            "Please restart the application to apply the update.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error downloading update: {e}")
+        messagebox.showerror("Download Error", f"Failed to download update: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred during download: {e}")
+
+def apply_update():
+    # Get the path to the current executable
+    current_exe = sys.executable
+    app_dir = os.path.dirname(current_exe)
+    temp_update_path = os.path.join(app_dir, UPDATE_TEMP_FILE)
+    old_exe_path = os.path.join(app_dir, OLD_EXE_FILE)
+
+    # Check if a temporary update file exists
+    if os.path.exists(temp_update_path):
+        print(f"Applying update from {temp_update_path}")
+        try:
+            # Clean up old backup if it exists
+            if os.path.exists(old_exe_path):
+                os.remove(old_exe_path)
+
+            # Rename current executable to .old
+            os.rename(current_exe, old_exe_path)
+
+            # Rename temporary update to current executable name
+            os.rename(temp_update_path, current_exe)
+
+            print("Update applied successfully.")
+            # Clean up the old executable backup (attempt, might fail if still in use)
+            try:
+                if os.path.exists(old_exe_path):
+                   os.remove(old_exe_path)
+            except Exception as e:
+                 print(f"Could not remove old executable backup {old_exe_path}: {e}")
+                 # This is not critical, the app should still run.
+
+            messagebox.showinfo("Update Applied", "Application has been updated. Click OK to continue.")
+            return True # Indicate update applied
+
+        except OSError as e:
+            print(f"Error applying update: {e}")
+            messagebox.showerror("Update Error",
+                                 f"Failed to apply update: {e}\n" +
+                                 "Please ensure you have permissions to write to the application directory\n" +
+                                 "and try restarting the application again.")
+            # If update fails, we might be in an inconsistent state, could exit here.
+            # sys.exit(1)
+            return False # Indicate update failed
+
+        except Exception as e:
+             print(f"An unexpected error occurred during update application: {e}")
+             messagebox.showerror("Update Error", f"An unexpected error occurred during update: {e}")
+             return False # Indicate update failed
+    else:
+        print("No update file found to apply.")
+        return False # Indicate no update file was present
+
 def main():
+    # Attempt to apply update on startup
+    update_applied = apply_update()
+    # If update was applied, the new exe is running, so this instance continues.
+    # If update failed or no update was pending, continue with normal startup.
+
     # Start the Flask backend server in a separate process
     try:
         # Use sys.executable to ensure the same Python interpreter is used
@@ -24,6 +144,11 @@ def main():
         print(f"Failed to start backend process: {e}")
         messagebox.showerror("Startup Error", "Failed to start the backend server. Please ensure app.py is in the correct directory.")
         return # Exit if the backend fails to start
+
+    # Check for updates after starting the backend (or before, depending on preference)
+    # We check if an update was just applied to avoid re-checking immediately.
+    if not update_applied:
+       check_for_updates()
 
     # db.create_tables() # Database table creation should be handled by the backend service
 
