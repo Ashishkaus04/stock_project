@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from datetime import datetime
 import db
 
 app = Flask(__name__)
@@ -9,9 +10,21 @@ def index():
 
 @app.route('/products', methods=['GET'])
 def get_products():
-    # Assuming db.get_all_products() exists or similar
-    # For now, we'll need to add a function in db.py to get all products
-    return jsonify([]) # Placeholder
+    try:
+        products = db.get_all_products()
+        # Convert list of tuples to list of dicts
+        product_list = []
+        for product_id, name, category, quantity, min_stock in products:
+            product_list.append({
+                'id': product_id,
+                'name': name,
+                'category': category,
+                'quantity': quantity,
+                'min_stock': min_stock
+            })
+        return jsonify(product_list)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/product/<int:product_id>', methods=['GET'])
 def get_product(product_id):
