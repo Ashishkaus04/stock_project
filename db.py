@@ -151,3 +151,23 @@ def get_stock_data():
         return []
     finally:
         conn.close()
+
+def delete_product(product_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        # Delete related quantity history first
+        cursor.execute("DELETE FROM quantity_history WHERE product_id = %s", (product_id,))
+        
+        # Then delete the product
+        cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+        deleted_count = cursor.rowcount
+        
+        conn.commit()
+        return deleted_count
+    except Exception as e:
+        print(f"Error deleting product: {str(e)}")
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
