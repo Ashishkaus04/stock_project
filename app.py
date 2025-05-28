@@ -26,21 +26,33 @@ def get_products():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/product/<int:product_id>', methods=['GET'])
+@app.route('/product/<int:product_id>', methods=['GET', 'DELETE'])
 def get_product(product_id):
-    product = db.get_product_details(product_id)
-    if product:
-        # Convert tuple to dict for better JSON representation
-        product_dict = {
-            'id': product_id,
-            'name': product[0],
-            'category': product[1],
-            'quantity': product[2],
-            'min_stock': product[3],
-            'created_date': product[4].isoformat() if isinstance(product[4], datetime) else str(product[4])
-        }
-        return jsonify(product_dict)
-    return jsonify({'error': 'Product not found'}), 404
+    if request.method == 'GET':
+        product = db.get_product_details(product_id)
+        if product:
+            # Convert tuple to dict for better JSON representation
+            product_dict = {
+                'id': product_id,
+                'name': product[0],
+                'category': product[1],
+                'quantity': product[2],
+                'min_stock': product[3],
+                'created_date': product[4].isoformat() if isinstance(product[4], datetime) else str(product[4])
+            }
+            return jsonify(product_dict)
+        return jsonify({'error': 'Product not found'}), 404
+
+    elif request.method == 'DELETE':
+        try:
+            # Assuming a delete_product function exists in db.py
+            deleted_count = db.delete_product(product_id)
+            if deleted_count > 0:
+                return jsonify({'success': f'Product with ID {product_id} deleted'}), 200
+            else:
+                return jsonify({'error': f'Product with ID {product_id} not found'}), 404
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
 @app.route('/product', methods=['POST'])
 def add_product():
@@ -115,4 +127,4 @@ def get_stock_data():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run() 
