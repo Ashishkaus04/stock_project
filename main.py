@@ -17,7 +17,7 @@ import shutil
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
 # Auto-update configuration
-CURRENT_VERSION = "1.0" # !!! IMPORTANT: Update this version number for each new release
+CURRENT_VERSION = "1.1" # !!! IMPORTANT: Update this version number for each new release
 VERSION_URL = "https://stock-project-nnei.onrender.com/static/version.json"
 DOWNLOAD_URL = "https://stock-project-nnei.onrender.com/static/main.exe"
 
