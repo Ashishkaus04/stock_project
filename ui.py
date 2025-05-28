@@ -355,17 +355,18 @@ def show_out_of_stock(root, main_tree=None):
         # This view should only show items that are out of stock (quantity <= 0)
         for row in tree.get_children():
             tree.delete(row)
-            
+
         try:
             # Fetch ALL products from API and filter locally
             # Alternatively, could add an API endpoint for out of stock items
             response = requests.get(f"{API_BASE_URL}/products")
             response.raise_for_status()
             products = response.json()
-            
-            out_of_stock_products = [p for p in products if p.get('quantity', 0) <= 0]
 
-            for product in out_of_stock_products:
+            # out_of_stock_products = [p for p in products if p.get('quantity', 0) <= 0]
+            all_products = products
+
+            for product in all_products:
                 item_id = product['id']
                 name = product['name']
                 category = product['category']

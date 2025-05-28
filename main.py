@@ -6,11 +6,25 @@ from datetime import datetime, time
 from tkcalendar import DateEntry
 import csv
 import requests
+import subprocess
+import sys
 
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
 def main():
+    # Start the Flask backend server in a separate process
+    try:
+        # Use sys.executable to ensure the same Python interpreter is used
+        # The command should be 'python app.py'
+        # We run in the background and capture output to avoid blocking
+        backend_process = subprocess.Popen([sys.executable, 'app.py'], cwd='.')
+        print("Backend process started with PID:", backend_process.pid)
+    except Exception as e:
+        print(f"Failed to start backend process: {e}")
+        messagebox.showerror("Startup Error", "Failed to start the backend server. Please ensure app.py is in the correct directory.")
+        return # Exit if the backend fails to start
+
     # db.create_tables() # Database table creation should be handled by the backend service
 
     root = tk.Tk()
