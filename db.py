@@ -1,45 +1,41 @@
-import sqlite3
+import psycopg2
 from datetime import datetime
 
 def connect_db():
-    conn = sqlite3.connect("inventory.db")
-    # Register datetime adapter
-    sqlite3.register_adapter(datetime, lambda dt: dt.isoformat())
-    sqlite3.register_converter("datetime", lambda s: datetime.fromisoformat(s.decode()))
-    return conn
+    # Use the provided Render PostgreSQL external database URL
+    return psycopg2.connect("postgresql://stack_project_mvd_user:cNnrEDOdsE1dWTK5JDv4FkbzwDbScnyu@dpg-d0r9dgh5pdvs73dpd4pg-a.oregon-postgres.render.com/stack_project_mvd")
 
 def create_tables():
     conn = connect_db()
     cursor = conn.cursor()
     
-    # Create products table
+    # Create products table with unique name
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
             category TEXT,
             quantity INTEGER,
             min_stock INTEGER,
-            created_date datetime
+            created_date TIMESTAMP
         )
     """)
     
-    # Create quantity_history table without contact fields
+    # Create quantity_history table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS quantity_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER,
+            id SERIAL PRIMARY KEY,
+            product_id INTEGER REFERENCES products(id),
             old_quantity INTEGER,
             new_quantity INTEGER,
-            change_date datetime,
+            change_date TIMESTAMP,
             seller_name TEXT,
-            invoice_number TEXT,
-            FOREIGN KEY (product_id) REFERENCES products (id)
+            invoice_number TEXT
         )
     """)
     
-    # Verify tables exist
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    # Verify tables exist (PostgreSQL version)
+    cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
     tables = cursor.fetchall()
     print("Existing tables:", [table[0] for table in tables])
     
@@ -52,18 +48,17 @@ def add_product(name, category, quantity, min_stock):
     try:
         current_time = datetime.now()
         # Insert the new product with creation date
-        cursor.execute("""
-            INSERT INTO products (name, category, quantity, min_stock, created_date)
-            VALUES (?, ?, ?, ?, ?)
-        """, (name, category, quantity, min_stock, current_time))
-        
-        product_id = cursor.lastrowid
+        cursor.execute(
+            "INSERT INTO products (name, category, quantity, min_stock, created_date) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (name, category, quantity, min_stock, current_time)
+        )
+        product_id = cursor.fetchone()[0]
         
         # Record initial quantity in history
-        cursor.execute("""
-            INSERT INTO quantity_history (product_id, old_quantity, new_quantity, change_date)
-            VALUES (?, ?, ?, ?)
-        """, (product_id, 0, quantity, current_time))
+        cursor.execute(
+            "INSERT INTO quantity_history (product_id, old_quantity, new_quantity, change_date) VALUES (%s, %s, %s, %s)",
+            (product_id, 0, quantity, current_time)
+        )
         
         conn.commit()
         return product_id
@@ -77,29 +72,24 @@ def add_product(name, category, quantity, min_stock):
 def update_product_quantity(product_id, new_quantity, seller_name=None, invoice_number=None):
     conn = connect_db()
     cursor = conn.cursor()
-    
     try:
         # Get current quantity
-        cursor.execute("SELECT quantity FROM products WHERE id = ?", (product_id,))
+        cursor.execute("SELECT quantity FROM products WHERE id = %s", (product_id,))
         result = cursor.fetchone()
         if result is None:
             raise Exception("Product not found")
         old_quantity = result[0]
         
         # Update product quantity
-        cursor.execute("UPDATE products SET quantity = ? WHERE id = ?", (new_quantity, product_id))
+        cursor.execute("UPDATE products SET quantity = %s WHERE id = %s", (new_quantity, product_id))
         
         # Record the change in history with seller information
         current_time = datetime.now()
         print(f"Recording history: product_id={product_id}, old={old_quantity}, new={new_quantity}, time={current_time}")
-        cursor.execute("""
-            INSERT INTO quantity_history (
-                product_id, old_quantity, new_quantity, change_date,
-                seller_name, invoice_number
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (product_id, old_quantity, new_quantity, current_time,
-              seller_name, invoice_number))
+        cursor.execute(
+            "INSERT INTO quantity_history (product_id, old_quantity, new_quantity, change_date, seller_name, invoice_number) VALUES (%s, %s, %s, %s, %s, %s)",
+            (product_id, old_quantity, new_quantity, current_time, seller_name, invoice_number)
+        )
         
         conn.commit()
     except Exception as e:
@@ -112,21 +102,11 @@ def update_product_quantity(product_id, new_quantity, seller_name=None, invoice_
 def get_quantity_history(product_id):
     conn = connect_db()
     cursor = conn.cursor()
-    
-    # First check if the history table exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='quantity_history'")
-    if not cursor.fetchone():
-        print("History table does not exist!")
-        return []
-    
     try:
-        cursor.execute("""
-            SELECT old_quantity, new_quantity, change_date,
-                   seller_name, invoice_number
-            FROM quantity_history 
-            WHERE product_id = ? 
-            ORDER BY change_date DESC
-        """, (product_id,))
+        cursor.execute(
+            "SELECT old_quantity, new_quantity, change_date, seller_name, invoice_number FROM quantity_history WHERE product_id = %s ORDER BY change_date DESC",
+            (product_id,)
+        )
         history = cursor.fetchall()
         print(f"Found {len(history)} history records for product {product_id}")
         return history
@@ -140,11 +120,10 @@ def get_product_details(product_id):
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT name, category, quantity, min_stock, created_date 
-            FROM products 
-            WHERE id = ?
-        """, (product_id,))
+        cursor.execute(
+            "SELECT name, category, quantity, min_stock, created_date FROM products WHERE id = %s",
+            (product_id,)
+        )
         return cursor.fetchone()
     finally:
         conn.close()

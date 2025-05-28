@@ -46,7 +46,11 @@ def add_product_window(root, tree=None):
             if tree:
                 populate_tree(tree)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to add product: {str(e)}")
+            import sqlite3
+            if isinstance(e, sqlite3.IntegrityError):
+                messagebox.showerror("Error", f"Product name '{data['name']}' already exists. Please use a unique name.")
+            else:
+                messagebox.showerror("Error", f"Failed to add product: {str(e)}")
 
     tk.Button(win, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=10)
 
