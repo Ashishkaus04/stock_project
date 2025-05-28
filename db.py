@@ -127,3 +127,27 @@ def get_product_details(product_id):
         return cursor.fetchone()
     finally:
         conn.close()
+
+def get_all_products():
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, name, category, quantity, min_stock FROM products")
+        return cursor.fetchall()
+    except Exception as e:
+        print(f"Error getting all products: {str(e)}")
+        return []
+    finally:
+        conn.close()
+
+def get_stock_data():
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name, category, quantity FROM products")
+        return cursor.fetchall()
+    except Exception as e:
+        print(f"Error getting stock data: {str(e)}")
+        return []
+    finally:
+        conn.close()

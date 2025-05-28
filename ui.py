@@ -3,22 +3,65 @@ from tkinter import ttk, messagebox, filedialog
 import db
 from datetime import datetime
 import csv
+import requests
+
+# Define the base URL for your Flask API (placeholder - replace with your Render service URL)
+API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
 def populate_tree(tree):
     for row in tree.get_children():
         tree.delete(row)
-    conn = db.connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name, category, quantity, min_stock FROM products")
-    for row in cursor.fetchall():
-        item_id, name, category, quantity, min_stock = row
-        # Format the row to show N/A for None values
-        formatted_row = [str(val) if val is not None else "N/A" for val in row]
-        item = tree.insert("", "end", values=formatted_row)
-        # If quantity is below min_stock, tag the item
-        if min_stock is not None and quantity < min_stock:
-            tree.item(item, tags=('low_stock',))
-    conn.close()
+    
+    try:
+        # Make GET request to the API to get all products
+        response = requests.get(f"{API_BASE_URL}/products")
+        response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+        products = response.json()
+        
+        for product in products:
+            # The API returns product details as a dictionary
+            item_id = product['id']
+            name = product['name']
+            category = product['category']
+            quantity = product['quantity']
+            min_stock = product['min_stock']
+            
+            # Format the row to show N/A for None values
+            formatted_row = [
+                str(item_id) if item_id is not None else "N/A",
+                name if name is not None else "N/A",
+                category if category is not None else "N/A",
+                str(quantity) if quantity is not None else "N/A",
+                str(min_stock) if min_stock is not None else "N/A"
+            ]
+            
+            item = tree.insert("", "end", values=formatted_row)
+            
+            # If quantity is below min_stock, tag the item
+            # Ensure quantity and min_stock are treated as numbers for comparison
+            try:
+                quantity_num = int(quantity) if quantity != "N/A" else 0
+                min_stock_num = int(min_stock) if min_stock != "N/A" else 0
+                if quantity_num < min_stock_num:
+                    tree.item(item, tags=('low_stock',))
+            except ValueError:
+                 # Handle cases where quantity or min_stock might not be valid numbers
+                 pass
+
+    except requests.exceptions.RequestException as e:
+        messagebox.showerror("API Error", f"Failed to fetch products: {e}")
+    # db.connect_db()
+    # cursor = conn.cursor()
+    # cursor.execute("SELECT id, name, category, quantity, min_stock FROM products")
+    # for row in cursor.fetchall():
+    #     item_id, name, category, quantity, min_stock = row
+    #     # Format the row to show N/A for None values
+    #     formatted_row = [str(val) if val is not None else "N/A" for val in row]
+    #     item = tree.insert("", "end", values=formatted_row)
+    #     # If quantity is below min_stock, tag the item
+    #     if min_stock is not None and quantity < min_stock:
+    #         tree.item(item, tags=('low_stock',))
+    # conn.close()
 
 def add_product_window(root, tree=None):
     win = tk.Toplevel(root)
@@ -36,21 +79,38 @@ def add_product_window(root, tree=None):
     def save():
         try:
             data = {k: v.get() for k, v in entries.items()}
-            db.add_product(
-                data["name"],
-                data["category"],
-                int(data["quantity"]),
-                int(data["min_stock"])
-            )
+            
+            # Prepare data for API request
+            product_data = {
+                "name": data.get("name"),
+                "category": data.get("category"),
+                "quantity": int(data.get("quantity", 0)),
+                "min_stock": int(data.get("min_stock", 0))
+            }
+
+            # Make POST request to the API to add product
+            response = requests.post(f"{API_BASE_URL}/product", json=product_data)
+            response.raise_for_status() # Raise an exception for bad status codes
+            
+            # Handle success response
+            messagebox.showinfo("Success", "Product added successfully!")
             win.destroy()
             if tree:
                 populate_tree(tree)
-        except Exception as e:
-            import sqlite3
-            if isinstance(e, sqlite3.IntegrityError):
-                messagebox.showerror("Error", f"Product name '{data['name']}' already exists. Please use a unique name.")
-            else:
-                messagebox.showerror("Error", f"Failed to add product: {str(e)}")
+
+        except ValueError:
+             messagebox.showerror("Error", "Please enter valid numbers for Quantity and Min Stock.")
+        except requests.exceptions.RequestException as e:
+            # Attempt to parse API error message if available
+            error_message = str(e)
+            if response and response.content:
+                try:
+                    api_error = response.json()
+                    if 'error' in api_error:
+                        error_message = api_error['error']
+                except:
+                    pass # Ignore if JSON parsing fails
+            messagebox.showerror("API Error", f"Failed to add product: {error_message}")
 
     tk.Button(win, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=10)
 
@@ -91,16 +151,24 @@ def show_in_stock(root, main_tree=None):
             return
             
         item = tree.item(selected[0])['values']
-        item_id = item[0]
+        item_id = int(item[0]) # Ensure item_id is integer
         item_name = item[1]
-        old_qty = item[2]
+        current_qty = int(item[2]) # Ensure current_qty is integer
 
-        # Get all product details
-        conn = db.connect_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name, category, quantity, min_stock FROM products WHERE id = ?", (item_id,))
-        product = cursor.fetchone()
-        conn.close()
+        # Get all product details from API (to get min_stock for preview)
+        try:
+            response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+            response.raise_for_status()
+            product_details = response.json()
+            min_stock = product_details.get('min_stock', 0)
+            current_qty_from_api = product_details.get('quantity', 0)
+
+            # Use the quantity from API in case the local tree view is outdated
+            current_qty = current_qty_from_api
+
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("API Error", f"Failed to fetch product details for update: {e}")
+            return
 
         update_win = tk.Toplevel(win)
         update_win.title(f"Update Product - {item_name}")
@@ -123,33 +191,33 @@ def show_in_stock(root, main_tree=None):
         name_frame = tk.Frame(details_frame)
         name_frame.pack(fill="x", pady=2)
         tk.Label(name_frame, text="Name:", width=10, anchor="w").pack(side="left")
-        tk.Label(name_frame, text=product[0], font=("Arial", 9, "bold")).pack(side="left")
+        tk.Label(name_frame, text=product_details.get('name', 'N/A'), font=("Arial", 9, "bold")).pack(side="left")
 
         # Category
         cat_frame = tk.Frame(details_frame)
         cat_frame.pack(fill="x", pady=2)
         tk.Label(cat_frame, text="Category:", width=10, anchor="w").pack(side="left")
-        tk.Label(cat_frame, text=product[1] or "N/A").pack(side="left")
+        tk.Label(cat_frame, text=product_details.get('category', 'N/A')).pack(side="left")
 
         # Min Stock
         min_frame = tk.Frame(details_frame)
         min_frame.pack(fill="x", pady=2)
         tk.Label(min_frame, text="Min Stock:", width=10, anchor="w").pack(side="left")
-        tk.Label(min_frame, text=product[3] or "N/A").pack(side="left")
+        tk.Label(min_frame, text=product_details.get('min_stock', 'N/A')).pack(side="left")
 
         # Current Quantity
         curr_frame = tk.Frame(details_frame)
         curr_frame.pack(fill="x", pady=2)
         tk.Label(curr_frame, text="Current Qty:", width=10, anchor="w").pack(side="left")
-        tk.Label(curr_frame, text=str(product[2]), font=("Arial", 9, "bold")).pack(side="left")
+        tk.Label(curr_frame, text=str(current_qty), font=("Arial", 9, "bold")).pack(side="left")
 
         # Quantity update section
         update_frame = tk.LabelFrame(frame, text="Update Quantity", padx=10, pady=10)
         update_frame.pack(fill="x", pady=(0, 15))
-        
+
         qty_frame = tk.Frame(update_frame)
         qty_frame.pack(fill="x", pady=5)
-        
+
         tk.Label(qty_frame, text="Quantity to Add:").pack(side="left", padx=(0, 5))
         qty_entry = tk.Entry(qty_frame, width=10)
         qty_entry.insert(0, "0")
@@ -178,21 +246,25 @@ def show_in_stock(root, main_tree=None):
         # Preview section
         preview_frame = tk.LabelFrame(frame, text="Preview", padx=10, pady=10)
         preview_frame.pack(fill="x", pady=(0, 15))
-        
-        preview_label = tk.Label(preview_frame, text=f"New Total: {product[2]}")
+
+        preview_label = tk.Label(preview_frame, text=f"New Total: {current_qty}")
         preview_label.pack(pady=5)
 
         def update_preview(*args):
             try:
                 add_qty = int(qty_entry.get())
-                new_total = product[2] + add_qty
+                new_total = current_qty + add_qty
                 preview_label.config(text=f"New Total: {new_total}")
-                
+
                 # Add warning if below min stock
-                if new_total < product[3]:
-                    preview_label.config(fg="red")
-                else:
-                    preview_label.config(fg="black")
+                try:
+                    min_stock_num = int(min_stock) if min_stock != "N/A" else 0
+                    if new_total < min_stock_num:
+                         preview_label.config(fg="red")
+                    else:
+                         preview_label.config(fg="black")
+                except ValueError:
+                    pass # Ignore if min_stock is not a valid number
             except ValueError:
                 preview_label.config(text="New Total: Invalid", fg="red")
 
@@ -202,44 +274,57 @@ def show_in_stock(root, main_tree=None):
         def validate_and_save():
             try:
                 add_qty = int(qty_entry.get())
-                new_qty = product[2] + add_qty
+                new_qty = current_qty + add_qty
                 if new_qty < 0:
                     messagebox.showerror("Error", "Final quantity cannot be negative")
                     return
-                
+
                 # Get seller information
                 seller_name = seller_name_entry.get().strip()
                 invoice_number = invoice_entry.get().strip()
-                
-                # Update quantity with seller information
-                db.update_product_quantity(
-                    item_id, 
-                    new_qty,
-                    seller_name if seller_name else None,
-                    invoice_number if invoice_number else None
-                )
-                
+
+                # Prepare data for API request
+                update_data = {
+                    "new_quantity": new_qty,
+                    "seller_name": seller_name if seller_name else None,
+                    "invoice_number": invoice_number if invoice_number else None
+                }
+
+                # Make PUT request to the API to update quantity
+                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data)
+                response.raise_for_status() # Raise an exception for bad status codes
+
+                # Handle success response
                 messagebox.showinfo("Success", f"Quantity updated to {new_qty}")
                 update_win.destroy()
-                populate_in_stock()
+
+                # Refresh the treeview after update
                 if main_tree:
                     populate_tree(main_tree)
+                # If this is the in-stock window itself, we might need to repopulate it
+                # populate_in_stock() # This might close the window, need to rethink flow or just rely on main tree refresh
+
             except ValueError:
                 messagebox.showerror("Error", "Please enter a valid number")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to update quantity: {str(e)}")
-
-        def on_enter(event):
-            validate_and_save()
+            except requests.exceptions.RequestException as e:
+                 # Attempt to parse API error message if available
+                error_message = str(e)
+                if response and response.content:
+                    try:
+                        api_error = response.json()
+                        if 'error' in api_error:
+                            error_message = api_error['error']
+                    except:
+                        pass # Ignore if JSON parsing fails
+                messagebox.showerror("API Error", f"Failed to update quantity: {error_message}")
 
         # Bind Enter key to save
-        qty_entry.bind('<Return>', on_enter)
-        update_win.bind('<Return>', on_enter)  # Also bind to the window
+        update_win.bind('<Return>', lambda event=None: validate_and_save())
 
         # Button frame
         btn_frame = tk.Frame(frame)
         btn_frame.pack(pady=(10, 0))
-        
+
         tk.Button(btn_frame, text="Save", command=validate_and_save, width=10).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Cancel", command=update_win.destroy, width=10).pack(side="left", padx=5)
 
@@ -267,19 +352,49 @@ def show_out_of_stock(root, main_tree=None):
     tree.tag_configure('low_stock', foreground='red')
 
     def populate_out_of_stock():
+        # This view should only show items that are out of stock (quantity <= 0)
         for row in tree.get_children():
             tree.delete(row)
-        conn = db.connect_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, category, quantity, min_stock FROM products")
-        for row in cursor.fetchall():
-            item_id, name, category, quantity, min_stock = row
-            # Format the row to show N/A for None values
-            formatted_row = [str(val) if val is not None else "N/A" for val in row]
-            item = tree.insert("", "end", values=formatted_row)
-            if min_stock is not None and quantity < min_stock:
-                tree.item(item, tags=('low_stock',))
-        conn.close()
+            
+        try:
+            # Fetch ALL products from API and filter locally
+            # Alternatively, could add an API endpoint for out of stock items
+            response = requests.get(f"{API_BASE_URL}/products")
+            response.raise_for_status()
+            products = response.json()
+            
+            out_of_stock_products = [p for p in products if p.get('quantity', 0) <= 0]
+
+            for product in out_of_stock_products:
+                item_id = product['id']
+                name = product['name']
+                category = product['category']
+                quantity = product['quantity']
+                min_stock = product['min_stock']
+
+                # Format the row to show N/A for None values
+                formatted_row = [
+                    str(item_id) if item_id is not None else "N/A",
+                    name if name is not None else "N/A",
+                    category if category is not None else "N/A",
+                    str(quantity) if quantity is not None else "N/A",
+                    str(min_stock) if min_stock is not None else "N/A"
+                ]
+
+                item = tree.insert("", "end", values=formatted_row)
+
+                # If quantity is below min_stock, tag the item (should all be low stock if out of stock)
+                try:
+                     quantity_num = int(quantity) if quantity != "N/A" else 0
+                     min_stock_num = int(min_stock) if min_stock != "N/A" else 0
+                     if quantity_num < min_stock_num:
+                         tree.item(item, tags=('low_stock',))
+                except ValueError:
+                    pass # Ignore if quantity or min_stock is not a valid number
+
+        except requests.exceptions.RequestException as e:
+             messagebox.showerror("API Error", f"Failed to fetch products for out of stock view: {e}")
+
 
     def remove_stock():
         selected = tree.selection()
@@ -288,9 +403,23 @@ def show_out_of_stock(root, main_tree=None):
             return
             
         item = tree.item(selected[0])['values']
-        item_id = item[0]
+        item_id = int(item[0]) # Ensure item_id is integer
         item_name = item[1]
-        current_qty = int(item[3])
+        current_qty = int(item[3]) # Ensure current_qty is integer
+
+        # Get all product details from API (to get current qty for preview)
+        try:
+            response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+            response.raise_for_status()
+            product_details = response.json()
+            current_qty_from_api = product_details.get('quantity', 0)
+
+            # Use the quantity from API in case the local tree view is outdated
+            current_qty = current_qty_from_api
+
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("API Error", f"Failed to fetch product details for removal: {e}")
+            return
 
         remove_win = tk.Toplevel(win)
         remove_win.title(f"Remove Stock - {item_name}")
@@ -373,23 +502,38 @@ def show_out_of_stock(root, main_tree=None):
                 buyer_name = buyer_name_entry.get().strip()
                 invoice_number = invoice_entry.get().strip()
 
-                # Update quantity with buyer information
-                db.update_product_quantity(
-                    item_id,
-                    new_qty,
-                    buyer_name if buyer_name else None,
-                    invoice_number if invoice_number else None
-                )
+                # Prepare data for API request (new quantity will be current - removed)
+                update_data = {
+                    "new_quantity": new_qty,
+                    "seller_name": buyer_name if buyer_name else None, # Using seller_name field for buyer
+                    "invoice_number": invoice_number if invoice_number else None
+                }
+
+                # Make PUT request to the API to update quantity
+                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data)
+                response.raise_for_status() # Raise an exception for bad status codes
 
                 messagebox.showinfo("Success", f"Removed {remove_qty} items. New quantity: {new_qty}")
                 remove_win.destroy()
-                populate_out_of_stock()
+                
+                # Refresh the treeview after removal
                 if main_tree:
                     populate_tree(main_tree)
+                 #populate_out_of_stock() # This might close the window, need to rethink flow or just rely on main tree refresh
+
             except ValueError:
                 messagebox.showerror("Error", "Please enter a valid number")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to remove stock: {str(e)}")
+            except requests.exceptions.RequestException as e:
+                # Attempt to parse API error message if available
+                error_message = str(e)
+                if response and response.content:
+                    try:
+                        api_error = response.json()
+                        if 'error' in api_error:
+                            error_message = api_error['error']
+                    except:
+                        pass # Ignore if JSON parsing fails
+                messagebox.showerror("API Error", f"Failed to remove stock: {error_message}")
 
         def on_enter(event):
             save_removal()
@@ -410,7 +554,7 @@ def show_out_of_stock(root, main_tree=None):
             return
             
         item = tree.item(selected[0])['values']
-        item_id = item[0]
+        item_id = int(item[0]) # Ensure item_id is integer
         item_name = item[1]
 
         if not messagebox.askyesno("Confirm Delete", 
@@ -418,18 +562,29 @@ def show_out_of_stock(root, main_tree=None):
             return
 
         try:
-            conn = db.connect_db()
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM products WHERE id = ?", (item_id,))
-            conn.commit()
-            conn.close()
+            # Make DELETE request to the API to delete the product
+            response = requests.delete(f"{API_BASE_URL}/product/{item_id}")
+            response.raise_for_status() # Raise an exception for bad status codes
             
             messagebox.showinfo("Success", f"Item '{item_name}' has been deleted")
-            populate_out_of_stock()
+            
+            # Refresh the treeview after deletion
             if main_tree:
                 populate_tree(main_tree)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to delete item: {str(e)}")
+            #populate_out_of_stock() # This might close the window, need to rethink flow or just rely on main tree refresh
+
+        except requests.exceptions.RequestException as e:
+            # Attempt to parse API error message if available
+            error_message = str(e)
+            if response and response.content:
+                try:
+                    api_error = response.json()
+                    if 'error' in api_error:
+                        error_message = api_error['error']
+                except:
+                    pass # Ignore if JSON parsing fails
+            messagebox.showerror("API Error", f"Failed to delete item: {error_message}")
+
 
     btn_frame = tk.Frame(win)
     btn_frame.pack(pady=5)
@@ -437,6 +592,7 @@ def show_out_of_stock(root, main_tree=None):
     tk.Button(btn_frame, text="Remove Stock", command=remove_stock).pack(side="left", padx=5)
     tk.Button(btn_frame, text="Delete Item", command=delete_item).pack(side="left", padx=5)
 
+    # Initial population
     populate_out_of_stock()
 
 def show_quantity_history(root, item_id, item_name):
@@ -457,72 +613,70 @@ def show_quantity_history(root, item_id, item_name):
     info_frame = tk.LabelFrame(frame, text="Product Information", padx=10, pady=10)
     info_frame.pack(fill="x", pady=(0, 15))
 
-    # Get current product details
-    product = db.get_product_details(item_id)
-    if not product:
-        messagebox.showerror("Error", "Product not found")
+    # Get current product details from API
+    try:
+        response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+        response.raise_for_status()
+        product = response.json()
+
+        # Name
+        name_frame = tk.Frame(info_frame)
+        name_frame.pack(fill="x", pady=2)
+        tk.Label(name_frame, text="Name:", width=10, anchor="w").pack(side="left")
+        tk.Label(name_frame, text=product.get('name', 'N/A'), font=("Arial", 9, "bold")).pack(side="left")
+
+        # Category
+        cat_frame = tk.Frame(info_frame)
+        cat_frame.pack(fill="x", pady=2)
+        tk.Label(cat_frame, text="Category:", width=10, anchor="w").pack(side="left")
+        tk.Label(cat_frame, text=product.get('category', 'N/A')).pack(side="left")
+
+        # Current Quantity
+        curr_frame = tk.Frame(info_frame)
+        curr_frame.pack(fill="x", pady=2)
+        tk.Label(curr_frame, text="Current Qty:", width=10, anchor="w").pack(side="left")
+        tk.Label(curr_frame, text=str(product.get('quantity', 'N/A')), font=("Arial", 9, "bold")).pack(side="left")
+
+        # Min Stock
+        min_frame = tk.Frame(info_frame)
+        min_frame.pack(fill="x", pady=2)
+        tk.Label(min_frame, text="Min Stock:", width=10, anchor="w").pack(side="left")
+        tk.Label(min_frame, text=product.get('min_stock', 'N/A')).pack(side="left")
+
+        # Created Date
+        created_frame = tk.Frame(info_frame)
+        created_frame.pack(fill="x", pady=2)
+        tk.Label(created_frame, text="Created:", width=10, anchor="w").pack(side="left")
+        created_date_str = product.get('created_date', 'N/A')
+        tk.Label(created_frame, text=created_date_str).pack(side="left")
+
+    except requests.exceptions.RequestException as e:
+        messagebox.showerror("API Error", f"Failed to fetch product details: {e}")
         win.destroy()
         return
-
-    # Name
-    name_frame = tk.Frame(info_frame)
-    name_frame.pack(fill="x", pady=2)
-    tk.Label(name_frame, text="Name:", width=10, anchor="w").pack(side="left")
-    tk.Label(name_frame, text=product[0], font=("Arial", 9, "bold")).pack(side="left")
-
-    # Category
-    cat_frame = tk.Frame(info_frame)
-    cat_frame.pack(fill="x", pady=2)
-    tk.Label(cat_frame, text="Category:", width=10, anchor="w").pack(side="left")
-    tk.Label(cat_frame, text=product[1] or "N/A").pack(side="left")
-
-    # Current Quantity
-    curr_frame = tk.Frame(info_frame)
-    curr_frame.pack(fill="x", pady=2)
-    tk.Label(curr_frame, text="Current Qty:", width=10, anchor="w").pack(side="left")
-    tk.Label(curr_frame, text=str(product[2]), font=("Arial", 9, "bold")).pack(side="left")
-
-    # Min Stock
-    min_frame = tk.Frame(info_frame)
-    min_frame.pack(fill="x", pady=2)
-    tk.Label(min_frame, text="Min Stock:", width=10, anchor="w").pack(side="left")
-    tk.Label(min_frame, text=product[3] or "N/A").pack(side="left")
-
-    # Created Date
-    created_frame = tk.Frame(info_frame)
-    created_frame.pack(fill="x", pady=2)
-    tk.Label(created_frame, text="Created:", width=10, anchor="w").pack(side="left")
-    created_date = product[4]
-    if isinstance(created_date, str):
-        try:
-            created_date = datetime.fromisoformat(created_date)
-        except ValueError:
-            pass
-    date_str = created_date.strftime("%Y-%m-%d %H:%M") if hasattr(created_date, 'strftime') else str(created_date)
-    tk.Label(created_frame, text=date_str).pack(side="left")
 
     # History section
     history_frame = tk.LabelFrame(frame, text="Quantity History", padx=10, pady=10)
     history_frame.pack(fill="both", expand=True)
 
     # Create Treeview for history with seller information
-    history_columns = ("Date", "Old Quantity", "New Quantity", "Change", "Seller", "Invoice")
+    history_columns = ("Date", "Old Quantity", "New Quantity", "Change", "Name", "Invoice")
     history_tree = ttk.Treeview(history_frame, columns=history_columns, show="headings", height=10)
-    
+
     # Configure column widths
     column_widths = {
         "Date": 150,
         "Old Quantity": 100,
         "New Quantity": 100,
         "Change": 80,
-        "Seller": 120,
+        "Name": 120,
         "Invoice": 100
     }
-    
+
     for col in history_columns:
         history_tree.heading(col, text=col)
         history_tree.column(col, width=column_widths.get(col, 100))
-    
+
     history_tree.pack(fill="both", expand=True)
 
     # Add scrollbar to history tree
@@ -530,31 +684,39 @@ def show_quantity_history(root, item_id, item_name):
     history_scroll.pack(side="right", fill="y")
     history_tree.configure(yscrollcommand=history_scroll.set)
 
-    # Populate history
-    history = db.get_quantity_history(item_id)
-    for old_qty, new_qty, change_date, seller_name, invoice_number in history:
-        change = new_qty - old_qty
-        change_text = f"{'+' if change > 0 else ''}{change}"
-        # Format the date string
-        if isinstance(change_date, str):
+    # Populate history from API
+    try:
+        response = requests.get(f"{API_BASE_URL}/product/{item_id}/history")
+        response.raise_for_status()
+        history = response.json()
+
+        for record in history:
+            old_qty = record.get('old_quantity', 'N/A')
+            new_qty = record.get('new_quantity', 'N/A')
+            change_date_str = record.get('change_date', 'N/A')
+            name = record.get('name', 'N/A')
+            invoice_number = record.get('invoice_number', 'N/A')
+
+            change = "N/A"
             try:
-                change_date = datetime.fromisoformat(change_date)
+                old_num = int(old_qty) if old_qty != "N/A" else 0
+                new_num = int(new_qty) if new_qty != "N/A" else 0
+                change = new_num - old_num
+                change_text = f"{'+' if change > 0 else ''}{change}"
             except ValueError:
-                pass
-        date_str = change_date.strftime("%Y-%m-%d %H:%M") if hasattr(change_date, 'strftime') else str(change_date)
-        
-        # Format seller information
-        seller_name = seller_name or "N/A"
-        invoice_number = invoice_number or "N/A"
-        
-        history_tree.insert("", "end", values=(
-            date_str,
-            old_qty,
-            new_qty,
-            change_text,
-            seller_name,
-            invoice_number
-        ))
+                change_text = "N/A"
+
+            history_tree.insert("", "end", values=(
+                change_date_str,
+                old_qty,
+                new_qty,
+                change_text,
+                name,
+                invoice_number
+            ))
+
+    except requests.exceptions.RequestException as e:
+        messagebox.showerror("API Error", f"Failed to fetch history: {e}")
 
     # Only show the Close button
     button_frame = tk.Frame(frame)
