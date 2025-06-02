@@ -195,16 +195,49 @@ def main():
     search_frame.pack(fill="x", pady=(5, 0))
 
     tk.Label(search_frame, text="Search:", font=DEFAULT_FONT).pack(side="left", padx=5)
-    search_entry = ttk.Entry(search_frame, font=DEFAULT_FONT)
-    search_entry.pack(side="left", fill="x", expand=True, padx=5)
+    
+    # Create a Combobox for search with suggestions
+    search_var = tk.StringVar()
+    search_combo = ttk.Combobox(search_frame, textvariable=search_var, font=DEFAULT_FONT)
+    search_combo.pack(side="left", fill="x", expand=True, padx=5)
+    
+    def update_suggestions(*args):
+        search_term = search_var.get()
+        if search_term:
+            try:
+                # Get suggestions from the API
+                response = requests.get(f"{API_BASE_URL}/products?search={requests.utils.quote(search_term)}")
+                response.raise_for_status()
+                products = response.json()
+                
+                # Create a list of suggestions from product names and categories
+                suggestions = set()
+                for product in products:
+                    if product['name']:
+                        suggestions.add(product['name'])
+                    if product['category']:
+                        suggestions.add(product['category'])
+                
+                # Update the combobox values
+                search_combo['values'] = sorted(list(suggestions))
+                
+                # Show the dropdown if there are suggestions
+                if suggestions:
+                    search_combo.event_generate('<Down>')
+            except requests.exceptions.RequestException as e:
+                print(f"Error getting suggestions: {e}")
 
-    def perform_search():
-        search_term = search_entry.get()
+    # Bind the update_suggestions function to the search variable
+    search_var.trace('w', update_suggestions)
+
+    def perform_search(event=None):
+        search_term = search_var.get()
         print(f"Searching for: {search_term}")
-        # TODO: Implement actual search logic using the backend API
-        # Then, update the treeview with the search results
         ui.populate_tree(tree, search_term)
 
+    # Bind Enter key to perform search
+    search_combo.bind('<Return>', perform_search)
+    
     search_button = ttk.Button(search_frame, text="Search", command=perform_search, style='TButton')
     search_button.pack(side="left", padx=5)
 
