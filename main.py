@@ -25,6 +25,35 @@ DOWNLOAD_URL = "https://stock-project-nnei.onrender.com/static/main.exe"
 UPDATE_TEMP_FILE = "main.exe.temp"
 OLD_EXE_FILE = "main.exe.old"
 
+# Define default font configuration
+DEFAULT_FONT = ('Helvetica', 10)
+HEADING_FONT = ('Helvetica', 10, 'bold')
+
+def configure_fonts():
+    """Configure fonts for the application."""
+    style = ttk.Style()
+    
+    # Configure default font for all ttk widgets
+    style.configure('.', font=DEFAULT_FONT)
+    
+    # Configure specific widget fonts
+    style.configure('Treeview', font=DEFAULT_FONT)
+    style.configure('Treeview.Heading', font=HEADING_FONT)
+    style.configure('TButton', font=DEFAULT_FONT)
+    style.configure('TLabel', font=DEFAULT_FONT)
+    style.configure('TEntry', font=DEFAULT_FONT)
+    style.configure('TCombobox', font=DEFAULT_FONT)
+
+def change_theme(theme_name):
+    """Change the application theme."""
+    style = ttk.Style()
+    try:
+        style.theme_use(theme_name)
+        print(f"Theme changed to {theme_name}")
+    except tk.TclError as e:
+        print(f"Error changing theme: {e}")
+        messagebox.showerror("Theme Error", f"Failed to change theme: {e}")
+
 def check_for_updates():
     try:
         response = requests.get(VERSION_URL)
@@ -150,11 +179,34 @@ def main():
     if not update_applied:
        check_for_updates()
 
-    # db.create_tables() # Database table creation should be handled by the backend service
-
     root = tk.Tk()
     root.title("MVD Stock Manager")
     root.geometry("800x400")
+
+    # Configure fonts
+    configure_fonts()
+    
+    # Create a style object and set clam theme
+    style = ttk.Style()
+    style.theme_use('clam')
+
+    # Add search feature
+    search_frame = tk.Frame(root)
+    search_frame.pack(fill="x", pady=(5, 0))
+
+    tk.Label(search_frame, text="Search:", font=DEFAULT_FONT).pack(side="left", padx=5)
+    search_entry = ttk.Entry(search_frame, font=DEFAULT_FONT)
+    search_entry.pack(side="left", fill="x", expand=True, padx=5)
+
+    def perform_search():
+        search_term = search_entry.get()
+        print(f"Searching for: {search_term}")
+        # TODO: Implement actual search logic using the backend API
+        # Then, update the treeview with the search results
+        ui.populate_tree(tree, search_term)
+
+    search_button = ttk.Button(search_frame, text="Search", command=perform_search, style='TButton')
+    search_button.pack(side="left", padx=5)
 
     columns = ("ID", "Name", "Category", "Quantity", "Min Stock")
     tree = ttk.Treeview(root, columns=columns, show="headings")
@@ -182,9 +234,9 @@ def main():
     btn_frame.pack(fill="x", pady=(10, 0))
 
     # These functions in ui.py already use the API
-    tk.Button(btn_frame, text="In-Stock", command=lambda: ui.show_in_stock(root, tree)).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Out of Stock", command=lambda: ui.show_out_of_stock(root, tree)).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Refresh", command=lambda: ui.populate_tree(tree)).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="In-Stock", command=lambda: ui.show_in_stock(root, tree), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Out of Stock", command=lambda: ui.show_out_of_stock(root, tree), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Refresh", command=lambda: ui.populate_tree(tree), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
 
     def export_selected_to_csv():
         selected = tree.selection()
@@ -305,7 +357,7 @@ def main():
             tk.messagebox.showinfo("Success", f"History exported successfully to:\n{file_path}")
         tk.Button(prompt, text="OK", command=on_ok).grid(row=2, column=0, columnspan=2, pady=10)
 
-    tk.Button(btn_frame, text="Export to CSV", command=export_selected_to_csv).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Export to CSV", command=export_selected_to_csv, font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
 
     def print_stock():
         # Ask for file path
@@ -339,7 +391,7 @@ def main():
              messagebox.showerror("API Error", f"Failed to fetch stock data: {e}")
 
     # Add button to UI
-    tk.Button(btn_frame, text="Print Stock", command=print_stock).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Print Stock", command=print_stock, font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
 
     # populate_tree is already updated to use the API via ui.py
     ui.populate_tree(tree)

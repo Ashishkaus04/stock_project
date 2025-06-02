@@ -8,13 +8,19 @@ import requests
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
-def populate_tree(tree):
+def populate_tree(tree, search_term=None):
+    """Populates the treeview with products, optionally filtered by search_term."""
     for row in tree.get_children():
         tree.delete(row)
     
     try:
-        # Make GET request to the API to get all products
-        response = requests.get(f"{API_BASE_URL}/products")
+        # Construct the API URL, adding search query parameter if search_term is provided
+        url = f"{API_BASE_URL}/products"
+        if search_term:
+            url += f"?search={requests.utils.quote(search_term)}"
+
+        # Make GET request to the API
+        response = requests.get(url)
         response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
         products = response.json()
         

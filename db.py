@@ -128,11 +128,20 @@ def get_product_details(product_id):
     finally:
         conn.close()
 
-def get_all_products():
+def get_all_products(search_term=None):
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT id, name, category, quantity, min_stock FROM products")
+        sql_query = "SELECT id, name, category, quantity, min_stock FROM products"
+        if search_term:
+            # Add WHERE clause to filter by name or category (case-insensitive)
+            sql_query += " WHERE LOWER(name) LIKE LOWER(%s) OR LOWER(category) LIKE LOWER(%s)"
+            # Add wildcard to search term for LIKE query
+            search_pattern = f"%{search_term}%"
+            cursor.execute(sql_query, (search_pattern, search_pattern))
+        else:
+            cursor.execute(sql_query)
+            
         return cursor.fetchall()
     except Exception as e:
         print(f"Error getting all products: {str(e)}")

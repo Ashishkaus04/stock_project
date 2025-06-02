@@ -11,7 +11,12 @@ def index():
 @app.route('/products', methods=['GET'])
 def get_products():
     try:
-        products = db.get_all_products()
+        # Get the search term from the query parameters
+        search_term = request.args.get('search')
+        
+        # Pass the search term to the database function
+        products = db.get_all_products(search_term)
+        
         # Convert list of tuples to list of dicts
         product_list = []
         for product_id, name, category, quantity, min_stock in products:
