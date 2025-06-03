@@ -64,10 +64,12 @@ class UserManager:
 
     def verify_user(self, username, password):
         """Verify user credentials."""
+        print(f"Attempting to verify user: {username}") # Debug print
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         password_hash = self.hash_password(password)
+        print(f"Generated password hash for '{username}': {password_hash}") # Debug print
         cursor.execute(
             'SELECT id, username, role FROM users WHERE username = ? AND password_hash = ?',
             (username, password_hash)
@@ -77,11 +79,13 @@ class UserManager:
         conn.close()
         
         if user:
+            print(f"User '{username}' verified successfully.") # Debug print
             return {
                 'id': user[0],
                 'username': user[1],
                 'role': user[2]
             }
+        print(f"User '{username}' verification failed.") # Debug print
         return None
 
     def create_session(self, user_id):

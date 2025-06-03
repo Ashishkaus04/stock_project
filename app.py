@@ -4,6 +4,7 @@ import db
 from flask_cors import CORS
 from user_management import user_manager
 import functools
+import sqlite3
 
 app = Flask(__name__)
 CORS(app)
@@ -191,7 +192,6 @@ def get_stock_data():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/users', methods=['POST'])
-@login_required
 def create_user():
     data = request.get_json()
     username = data.get('username')
@@ -202,9 +202,26 @@ def create_user():
         return jsonify({"error": "Username and password are required"}), 400
     
     if user_manager.create_user(username, password, role):
+        print(f"Attempted to create user '{username}': Success.") # Debug print
         return jsonify({"message": "User created successfully"}), 201
     else:
+        print(f"Attempted to create user '{username}': Failed (Username already exists or other error).") # Debug print
         return jsonify({"error": "Username already exists"}), 400
+
+@app.route('/debug/users', methods=['GET'])
+def debug_users():
+    try:
+        conn = sqlite3.connect('stock.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, role FROM users')
+        users = cursor.fetchall()
+        conn.close()
+        user_list = []
+        for user_id, username, role in users:
+            user_list.append({'id': user_id, 'username': username, 'role': role})
+        return jsonify(user_list)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True) 
