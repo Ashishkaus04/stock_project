@@ -1,14 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import db
-from datetime import datetime
-import csv
 import requests
+from datetime import datetime
 
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
-def populate_tree(tree, search_term=None):
+def populate_tree(tree, search_term=None, auth_token=None):
     """Populates the treeview with products, optionally filtered by search_term."""
     for row in tree.get_children():
         tree.delete(row)
@@ -19,8 +17,13 @@ def populate_tree(tree, search_term=None):
         if search_term:
             url += f"?search={requests.utils.quote(search_term)}"
 
+        # Add authorization header
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
         # Make GET request to the API
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
         products = response.json()
         
@@ -56,20 +59,8 @@ def populate_tree(tree, search_term=None):
 
     except requests.exceptions.RequestException as e:
         messagebox.showerror("API Error", f"Failed to fetch products: {e}")
-    # db.connect_db()
-    # cursor = conn.cursor()
-    # cursor.execute("SELECT id, name, category, quantity, min_stock FROM products")
-    # for row in cursor.fetchall():
-    #     item_id, name, category, quantity, min_stock = row
-    #     # Format the row to show N/A for None values
-    #     formatted_row = [str(val) if val is not None else "N/A" for val in row]
-    #     item = tree.insert("", "end", values=formatted_row)
-    #     # If quantity is below min_stock, tag the item
-    #     if min_stock is not None and quantity < min_stock:
-    #         tree.item(item, tags=('low_stock',))
-    # conn.close()
 
-def add_product_window(root, tree=None):
+def add_product_window(root, tree=None, auth_token=None):
     win = tk.Toplevel(root)
     win.title("Add Product")
 
@@ -94,15 +85,20 @@ def add_product_window(root, tree=None):
                 "min_stock": int(data.get("min_stock", 0))
             }
 
+            # Add authorization header
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
             # Make POST request to the API to add product
-            response = requests.post(f"{API_BASE_URL}/product", json=product_data)
+            response = requests.post(f"{API_BASE_URL}/product", json=product_data, headers=headers)
             response.raise_for_status() # Raise an exception for bad status codes
             
             # Handle success response
             messagebox.showinfo("Success", "Product added successfully!")
             win.destroy()
             if tree:
-                populate_tree(tree)
+                populate_tree(tree, auth_token=auth_token)
 
         except ValueError:
              messagebox.showerror("Error", "Please enter valid numbers for Quantity and Min Stock.")
@@ -120,7 +116,7 @@ def add_product_window(root, tree=None):
 
     tk.Button(win, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=10)
 
-def show_in_stock(root, main_tree=None):
+def show_in_stock(root, main_tree=None, auth_token=None):
     win = tk.Toplevel(root)
     win.title("In-Stock Items")
 
@@ -137,18 +133,31 @@ def show_in_stock(root, main_tree=None):
     def populate_in_stock():
         for row in tree.get_children():
             tree.delete(row)
-        conn = db.connect_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, name, quantity, min_stock FROM products")
-        for row in cursor.fetchall():
-            item_id, name, quantity, min_stock = row
-            item = tree.insert("", "end", values=(item_id, name, quantity))
-            if min_stock is not None and quantity < min_stock:
-                tree.item(item, tags=('low_stock',))
-        conn.close()
+        try:
+            # Add authorization header
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            response = requests.get(f"{API_BASE_URL}/products", headers=headers)
+            response.raise_for_status()
+            products = response.json()
+
+            for product in products:
+                item_id = product['id']
+                name = product['name']
+                quantity = product['quantity']
+                min_stock = product['min_stock']
+
+                item = tree.insert("", "end", values=(item_id, name, quantity))
+                if min_stock is not None and quantity < min_stock:
+                    tree.item(item, tags=('low_stock',))
+
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("API Error", f"Failed to fetch products: {e}")
 
     def add_new_item():
-        add_product_window(win, tree=tree)
+        add_product_window(win, tree=tree, auth_token=auth_token)
 
     def update_quantity():
         selected = tree.selection()
@@ -163,7 +172,12 @@ def show_in_stock(root, main_tree=None):
 
         # Get all product details from API (to get min_stock for preview)
         try:
-            response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+            # Add authorization header
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            response = requests.get(f"{API_BASE_URL}/product/{item_id}", headers=headers)
             response.raise_for_status()
             product_details = response.json()
             min_stock = product_details.get('min_stock', 0)
@@ -296,8 +310,13 @@ def show_in_stock(root, main_tree=None):
                     "invoice_number": invoice_number if invoice_number else None
                 }
 
+                # Add authorization header
+                headers = {}
+                if auth_token:
+                    headers["Authorization"] = f"Bearer {auth_token}"
+
                 # Make PUT request to the API to update quantity
-                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data)
+                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data, headers=headers)
                 response.raise_for_status() # Raise an exception for bad status codes
 
                 # Handle success response
@@ -306,9 +325,7 @@ def show_in_stock(root, main_tree=None):
 
                 # Refresh the treeview after update
                 if main_tree:
-                    populate_tree(main_tree)
-                # If this is the in-stock window itself, we might need to repopulate it
-                # populate_in_stock() # This might close the window, need to rethink flow or just rely on main tree refresh
+                    populate_tree(main_tree, auth_token=auth_token)
 
             except ValueError:
                 messagebox.showerror("Error", "Please enter a valid number")
@@ -342,7 +359,7 @@ def show_in_stock(root, main_tree=None):
 
     populate_in_stock()
 
-def show_out_of_stock(root, main_tree=None):
+def show_out_of_stock(root, main_tree=None, auth_token=None):
     win = tk.Toplevel(root)
     win.title("Out of Stock Management")
     win.geometry("600x400")
@@ -363,9 +380,14 @@ def show_out_of_stock(root, main_tree=None):
             tree.delete(row)
 
         try:
+            # Add authorization header
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
             # Fetch ALL products from API and filter locally
             # Alternatively, could add an API endpoint for out of stock items
-            response = requests.get(f"{API_BASE_URL}/products")
+            response = requests.get(f"{API_BASE_URL}/products", headers=headers)
             response.raise_for_status()
             products = response.json()
 
@@ -402,7 +424,6 @@ def show_out_of_stock(root, main_tree=None):
         except requests.exceptions.RequestException as e:
              messagebox.showerror("API Error", f"Failed to fetch products for out of stock view: {e}")
 
-
     def remove_stock():
         selected = tree.selection()
         if not selected:
@@ -416,7 +437,12 @@ def show_out_of_stock(root, main_tree=None):
 
         # Get all product details from API (to get current qty for preview)
         try:
-            response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+            # Add authorization header
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            response = requests.get(f"{API_BASE_URL}/product/{item_id}", headers=headers)
             response.raise_for_status()
             product_details = response.json()
             current_qty_from_api = product_details.get('quantity', 0)
@@ -516,8 +542,13 @@ def show_out_of_stock(root, main_tree=None):
                     "invoice_number": invoice_number if invoice_number else None
                 }
 
+                # Add authorization header
+                headers = {}
+                if auth_token:
+                    headers["Authorization"] = f"Bearer {auth_token}"
+
                 # Make PUT request to the API to update quantity
-                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data)
+                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data, headers=headers)
                 response.raise_for_status() # Raise an exception for bad status codes
 
                 messagebox.showinfo("Success", f"Removed {remove_qty} items. New quantity: {new_qty}")
@@ -525,8 +556,7 @@ def show_out_of_stock(root, main_tree=None):
                 
                 # Refresh the treeview after removal
                 if main_tree:
-                    populate_tree(main_tree)
-                 #populate_out_of_stock() # This might close the window, need to rethink flow or just rely on main tree refresh
+                    populate_tree(main_tree, auth_token=auth_token)
 
             except ValueError:
                 messagebox.showerror("Error", "Please enter a valid number")
@@ -569,16 +599,20 @@ def show_out_of_stock(root, main_tree=None):
             return
 
         try:
+            # Add authorization header
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
             # Make DELETE request to the API to delete the product
-            response = requests.delete(f"{API_BASE_URL}/product/{item_id}")
+            response = requests.delete(f"{API_BASE_URL}/product/{item_id}", headers=headers)
             response.raise_for_status() # Raise an exception for bad status codes
             
             messagebox.showinfo("Success", f"Item '{item_name}' has been deleted")
             
             # Refresh the treeview after deletion
             if main_tree:
-                populate_tree(main_tree)
-            #populate_out_of_stock() # This might close the window, need to rethink flow or just rely on main tree refresh
+                populate_tree(main_tree, auth_token=auth_token)
 
         except requests.exceptions.RequestException as e:
             # Attempt to parse API error message if available
@@ -592,7 +626,6 @@ def show_out_of_stock(root, main_tree=None):
                     pass # Ignore if JSON parsing fails
             messagebox.showerror("API Error", f"Failed to delete item: {error_message}")
 
-
     btn_frame = tk.Frame(win)
     btn_frame.pack(pady=5)
 
@@ -602,7 +635,7 @@ def show_out_of_stock(root, main_tree=None):
     # Initial population
     populate_out_of_stock()
 
-def show_quantity_history(root, item_id, item_name):
+def show_quantity_history(root, item_id, item_name, auth_token=None):
     win = tk.Toplevel(root)
     win.title(f"Quantity History - {item_name}")
     win.geometry("800x400")  # Increased width to accommodate new columns
@@ -622,7 +655,12 @@ def show_quantity_history(root, item_id, item_name):
 
     # Get current product details from API
     try:
-        response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+        # Add authorization header
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
+        response = requests.get(f"{API_BASE_URL}/product/{item_id}", headers=headers)
         response.raise_for_status()
         product = response.json()
 
@@ -693,7 +731,12 @@ def show_quantity_history(root, item_id, item_name):
 
     # Populate history from API
     try:
-        response = requests.get(f"{API_BASE_URL}/product/{item_id}/history")
+        # Add authorization header
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
+        response = requests.get(f"{API_BASE_URL}/product/{item_id}/history", headers=headers)
         response.raise_for_status()
         history = response.json()
 

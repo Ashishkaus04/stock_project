@@ -29,6 +29,79 @@ OLD_EXE_FILE = "main.exe.old"
 DEFAULT_FONT = ('Helvetica', 10)
 HEADING_FONT = ('Helvetica', 10, 'bold')
 
+class LoginWindow:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("MVD Stock Manager - Login")
+        self.root.geometry("300x200")
+        
+        # Center the window
+        self.root.eval('tk::PlaceWindow . center')
+        
+        # Configure style
+        style = ttk.Style()
+        style.configure('TLabel', font=DEFAULT_FONT)
+        style.configure('TEntry', font=DEFAULT_FONT)
+        style.configure('TButton', font=DEFAULT_FONT)
+        
+        # Create main frame
+        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame.pack(fill="both", expand=True)
+        
+        # Username
+        ttk.Label(main_frame, text="Username:").pack(fill="x", pady=(0, 5))
+        self.username_var = tk.StringVar()
+        self.username_entry = ttk.Entry(main_frame, textvariable=self.username_var)
+        self.username_entry.pack(fill="x", pady=(0, 10))
+        
+        # Password
+        ttk.Label(main_frame, text="Password:").pack(fill="x", pady=(0, 5))
+        self.password_var = tk.StringVar()
+        self.password_entry = ttk.Entry(main_frame, textvariable=self.password_var, show="*")
+        self.password_entry.pack(fill="x", pady=(0, 20))
+        
+        # Login button
+        self.login_button = ttk.Button(main_frame, text="Login", command=self.login)
+        self.login_button.pack(fill="x")
+        
+        # Bind Enter key to login
+        self.root.bind('<Return>', lambda e: self.login())
+        
+        # Store login result
+        self.login_successful = False
+        self.user_data = None
+        self.auth_token = None
+        
+    def login(self):
+        username = self.username_var.get()
+        password = self.password_var.get()
+        
+        if not username or not password:
+            messagebox.showerror("Error", "Please enter both username and password")
+            return
+        
+        try:
+            response = requests.post(
+                f"{API_BASE_URL}/login",
+                json={"username": username, "password": password}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.user_data = data['user']
+                self.auth_token = data['token']
+                self.login_successful = True
+                self.root.destroy()
+            else:
+                messagebox.showerror("Login Failed", "Invalid username or password")
+                
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Error", f"Failed to connect to server: {e}")
+    
+    def run(self):
+        self.root.mainloop()
+        return self.login_successful, self.user_data, self.auth_token
+
 def configure_fonts():
     """Configure fonts for the application."""
     style = ttk.Style()
@@ -179,8 +252,16 @@ def main():
     if not update_applied:
        check_for_updates()
 
+    # Show login window
+    login_window = LoginWindow()
+    login_successful, user_data, auth_token = login_window.run()
+    
+    if not login_successful:
+        return  # Exit if login failed
+    
+    # Create main application window
     root = tk.Tk()
-    root.title("MVD Stock Manager")
+    root.title(f"MVD Stock Manager - Welcome {user_data['username']}")
     root.geometry("800x400")
 
     # Configure fonts
@@ -189,6 +270,27 @@ def main():
     # Create a style object and set clam theme
     style = ttk.Style()
     style.theme_use('clam')
+
+    # Add user info and logout button
+    user_frame = tk.Frame(root)
+    user_frame.pack(fill="x", pady=(5, 0))
+    
+    ttk.Label(user_frame, text=f"Logged in as: {user_data['username']}", font=DEFAULT_FONT).pack(side="left", padx=5)
+    
+    def logout():
+        try:
+            response = requests.post(
+                f"{API_BASE_URL}/logout",
+                headers={"Authorization": f"Bearer {auth_token}"}
+            )
+            if response.status_code == 200:
+                root.quit()
+            else:
+                messagebox.showerror("Logout Error", "Failed to logout properly")
+        except requests.exceptions.RequestException as e:
+            messagebox.showerror("Error", f"Failed to connect to server: {e}")
+    
+    ttk.Button(user_frame, text="Logout", command=logout, style='TButton').pack(side="right", padx=5)
 
     # Add search feature
     search_frame = tk.Frame(root)
@@ -206,7 +308,10 @@ def main():
         if search_term:
             try:
                 # Get suggestions from the API
-                response = requests.get(f"{API_BASE_URL}/products?search={requests.utils.quote(search_term)}")
+                response = requests.get(
+                    f"{API_BASE_URL}/products?search={requests.utils.quote(search_term)}",
+                    headers={"Authorization": f"Bearer {auth_token}"}
+                )
                 response.raise_for_status()
                 products = response.json()
                 
@@ -233,7 +338,7 @@ def main():
     def perform_search(event=None):
         search_term = search_var.get()
         print(f"Searching for: {search_term}")
-        ui.populate_tree(tree, search_term)
+        ui.populate_tree(tree, search_term, auth_token)
 
     # Bind Enter key to perform search
     search_combo.bind('<Return>', perform_search)
@@ -259,7 +364,7 @@ def main():
             item_id = item[0]
             item_name = item[1]
             # This function already uses the API via ui.py
-            ui.show_quantity_history(root, item_id, item_name)
+            ui.show_quantity_history(root, item_id, item_name, auth_token)
 
     tree.bind('<Double-1>', on_item_double_click)
 
@@ -267,9 +372,9 @@ def main():
     btn_frame.pack(fill="x", pady=(10, 0))
 
     # These functions in ui.py already use the API
-    tk.Button(btn_frame, text="In-Stock", command=lambda: ui.show_in_stock(root, tree), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Out of Stock", command=lambda: ui.show_out_of_stock(root, tree), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Refresh", command=lambda: ui.populate_tree(tree), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="In-Stock", command=lambda: ui.show_in_stock(root, tree, auth_token), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Out of Stock", command=lambda: ui.show_out_of_stock(root, tree, auth_token), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Refresh", command=lambda: ui.populate_tree(tree, auth_token=auth_token), font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
 
     def export_selected_to_csv():
         selected = tree.selection()
@@ -312,13 +417,19 @@ def main():
                     item_id = int(item[0]) # Ensure item_id is integer
 
                     # Fetch product details from API
-                    product_response = requests.get(f"{API_BASE_URL}/product/{item_id}")
+                    product_response = requests.get(
+                        f"{API_BASE_URL}/product/{item_id}",
+                        headers={"Authorization": f"Bearer {auth_token}"}
+                    )
                     product_response.raise_for_status()
                     product = product_response.json()
                     product_names[item_id] = (product.get('name', 'N/A'), product.get('category', 'N/A'))
 
                     # Fetch history from API
-                    history_response = requests.get(f"{API_BASE_URL}/product/{item_id}/history")
+                    history_response = requests.get(
+                        f"{API_BASE_URL}/product/{item_id}/history",
+                        headers={"Authorization": f"Bearer {auth_token}"}
+                    )
                     history_response.raise_for_status()
                     history = history_response.json()
 
@@ -406,7 +517,10 @@ def main():
         try:
             # Make GET request to a new API endpoint to get stock data
             # We need to add a /stock endpoint to api.py first
-            response = requests.get(f"{API_BASE_URL}/stock")
+            response = requests.get(
+                f"{API_BASE_URL}/stock",
+                headers={"Authorization": f"Bearer {auth_token}"}
+            )
             response.raise_for_status() # Raise an exception for bad status codes
             stock_data = response.json()
 
@@ -427,7 +541,7 @@ def main():
     tk.Button(btn_frame, text="Print Stock", command=print_stock, font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
 
     # populate_tree is already updated to use the API via ui.py
-    ui.populate_tree(tree)
+    ui.populate_tree(tree, auth_token=auth_token)
     root.mainloop()
 
 if __name__ == "__main__":

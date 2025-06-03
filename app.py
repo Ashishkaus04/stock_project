@@ -1,14 +1,68 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
 import db
+from flask_cors import CORS
+from user_management import user_manager
+import functools
 
 app = Flask(__name__)
+CORS(app)
+
+def login_required(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({"error": "No authorization token provided"}), 401
+        
+        token = auth_header.split(' ')[1]
+        user = user_manager.verify_session(token)
+        
+        if not user:
+            return jsonify({"error": "Invalid or expired token"}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
 
 @app.route('/')
 def index():
     return 'Stock Management API'
 
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+    
+    user = user_manager.verify_user(username, password)
+    if not user:
+        return jsonify({"error": "Invalid username or password"}), 401
+    
+    # Create a new session
+    token = user_manager.create_session(user['id'])
+    
+    return jsonify({
+        "token": token,
+        "user": {
+            "id": user['id'],
+            "username": user['username'],
+            "role": user['role']
+        }
+    })
+
+@app.route('/logout', methods=['POST'])
+@login_required
+def logout():
+    auth_header = request.headers.get('Authorization')
+    token = auth_header.split(' ')[1]
+    user_manager.delete_session(token)
+    return jsonify({"message": "Logged out successfully"})
+
 @app.route('/products', methods=['GET'])
+@login_required
 def get_products():
     try:
         # Get the search term from the query parameters
@@ -32,6 +86,7 @@ def get_products():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/product/<int:product_id>', methods=['GET', 'DELETE'])
+@login_required
 def get_product(product_id):
     if request.method == 'GET':
         product = db.get_product_details(product_id)
@@ -60,6 +115,7 @@ def get_product(product_id):
             return jsonify({'error': str(e)}), 500
 
 @app.route('/product', methods=['POST'])
+@login_required
 def add_product():
     data = request.json
     if not data or not 'name' in data or not 'quantity' in data:
@@ -77,6 +133,7 @@ def add_product():
          return jsonify({'error': str(e)}), 500
 
 @app.route('/product/<int:product_id>/quantity', methods=['PUT'])
+@login_required
 def update_product_qty(product_id):
     data = request.json
     if not data or not 'new_quantity' in data:
@@ -93,6 +150,7 @@ def update_product_qty(product_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/product/<int:product_id>/history', methods=['GET'])
+@login_required
 def get_history(product_id):
     history = db.get_quantity_history(product_id)
     # Convert list of tuples to list of dicts
@@ -116,6 +174,7 @@ def create_db_tables():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/stock', methods=['GET'])
+@login_required
 def get_stock_data():
     try:
         stock_data = db.get_stock_data() # Assuming this function exists in db.py
@@ -131,5 +190,21 @@ def get_stock_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/users', methods=['POST'])
+@login_required
+def create_user():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    role = data.get('role', 'user')
+    
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+    
+    if user_manager.create_user(username, password, role):
+        return jsonify({"message": "User created successfully"}), 201
+    else:
+        return jsonify({"error": "Username already exists"}), 400
+
 if __name__ == '__main__':
-    app.run() 
+    app.run(debug=True) 
