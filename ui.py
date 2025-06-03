@@ -704,8 +704,8 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
     history_frame = tk.LabelFrame(frame, text="Quantity History", padx=10, pady=10)
     history_frame.pack(fill="both", expand=True)
 
-    # Create Treeview for history with seller information
-    history_columns = ("Date", "Old Quantity", "New Quantity", "Change", "Name", "Invoice")
+    # Create Treeview for history with seller information and user
+    history_columns = ("Date", "Old Quantity", "New Quantity", "Change", "Name", "Invoice", "Changed By")
     history_tree = ttk.Treeview(history_frame, columns=history_columns, show="headings", height=10)
 
     # Configure column widths
@@ -715,7 +715,8 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
         "New Quantity": 100,
         "Change": 80,
         "Name": 120,
-        "Invoice": 100
+        "Invoice": 100,
+        "Changed By": 100
     }
 
     for col in history_columns:
@@ -746,6 +747,7 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
             change_date_str = record.get('change_date', 'N/A')
             name = record.get('name', 'N/A')
             invoice_number = record.get('invoice_number', 'N/A')
+            changed_by = record.get('username', 'N/A')
 
             change = "N/A"
             try:
@@ -762,7 +764,8 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
                 new_qty,
                 change_text,
                 name,
-                invoice_number
+                invoice_number,
+                changed_by
             ))
 
     except requests.exceptions.RequestException as e:
@@ -773,3 +776,73 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
     button_frame.pack(side="bottom", fill="x", pady=(10, 0))
     close_btn = tk.Button(button_frame, text="Close", command=win.destroy, width=10)
     close_btn.pack(side="left", padx=5)
+
+def add_user_window(root, auth_token=None):
+    """Opens a window to add a new user."""
+    win = tk.Toplevel(root)
+    win.title("Add New User")
+    win.geometry("300x200")
+    win.resizable(False, False)
+
+    # Center the window
+    win.transient(root)
+    win.grab_set()
+
+    frame = tk.Frame(win, padx=20, pady=20)
+    frame.pack(fill="both", expand=True)
+
+    # Username
+    tk.Label(frame, text="Username:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+    username_entry = tk.Entry(frame)
+    username_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+    # Password
+    tk.Label(frame, text="Password:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+    password_entry = tk.Entry(frame, show="*")
+    password_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+    # Role (optional, defaults to 'user' in backend if not sent)
+    # You can add a dropdown or entry for role if needed later
+
+    def save_user():
+        username = username_entry.get().strip()
+        password = password_entry.get().strip()
+
+        if not username or not password:
+            messagebox.showwarning("Input Error", "Please enter both username and password")
+            return
+
+        try:
+            user_data = {
+                "username": username,
+                "password": password,
+                "role": "user" # Default role, can be changed
+            }
+
+            headers = {}
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+
+            response = requests.post(f"{API_BASE_URL}/users", json=user_data, headers=headers)
+            response.raise_for_status() # Raise an exception for bad status codes
+
+            messagebox.showinfo("Success", "User created successfully!")
+            win.destroy()
+
+        except requests.exceptions.RequestException as e:
+            error_message = str(e)
+            if response and response.content:
+                try:
+                    api_error = response.json()
+                    if 'error' in api_error:
+                        error_message = api_error['error']
+                except:
+                    pass # Ignore if JSON parsing fails
+            messagebox.showerror("API Error", f"Failed to add user: {error_message}")
+
+    tk.Button(frame, text="Create User", command=save_user).grid(row=2, column=0, columnspan=2, pady=10)
+
+    # Allow pressing Enter to save
+    win.bind('<Return>', lambda event=None: save_user())
+
+    frame.columnconfigure(1, weight=1) # Allow username/password entries to expand

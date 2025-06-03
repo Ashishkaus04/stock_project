@@ -22,7 +22,8 @@ def login_required(f):
         if not user:
             return jsonify({"error": "Invalid or expired token"}), 401
         
-        return f(*args, **kwargs)
+        # Pass the user object to the decorated function
+        return f(*args, user=user, **kwargs)
     return decorated_function
 
 @app.route('/')
@@ -135,7 +136,7 @@ def add_product():
 
 @app.route('/product/<int:product_id>/quantity', methods=['PUT'])
 @login_required
-def update_product_qty(product_id):
+def update_product_qty(product_id, user):
     data = request.json
     if not data or not 'new_quantity' in data:
         return jsonify({'error': 'Missing new_quantity'}), 400
@@ -145,7 +146,7 @@ def update_product_qty(product_id):
     invoice_number = data.get('invoice_number')
 
     try:
-        db.update_product_quantity(product_id, new_quantity, seller_name, invoice_number)
+        db.update_product_quantity(product_id, new_quantity, seller_name, invoice_number, user_id=user['id'])
         return jsonify({'success': 'Quantity updated'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -156,13 +157,14 @@ def get_history(product_id):
     history = db.get_quantity_history(product_id)
     # Convert list of tuples to list of dicts
     history_list = []
-    for old_qty, new_qty, change_date, name, invoice_number in history:
+    for old_qty, new_qty, change_date, name, invoice_number, username in history:
          history_list.append({
             'old_quantity': old_qty,
             'new_quantity': new_qty,
             'change_date': change_date.isoformat() if isinstance(change_date, datetime) else str(change_date),
             'name': name,
-            'invoice_number': invoice_number
+            'invoice_number': invoice_number,
+            'username': username
         })
     return jsonify(history_list)
 

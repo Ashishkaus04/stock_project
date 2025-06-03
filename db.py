@@ -30,7 +30,8 @@ def create_tables():
             new_quantity INTEGER,
             change_date TIMESTAMP,
             seller_name TEXT,
-            invoice_number TEXT
+            invoice_number TEXT,
+            user_id INTEGER REFERENCES users(id)
         )
     """)
     
@@ -69,7 +70,7 @@ def add_product(name, category, quantity, min_stock):
     finally:
         conn.close()
 
-def update_product_quantity(product_id, new_quantity, seller_name=None, invoice_number=None):
+def update_product_quantity(product_id, new_quantity, seller_name=None, invoice_number=None, user_id=None):
     conn = connect_db()
     cursor = conn.cursor()
     try:
@@ -83,12 +84,12 @@ def update_product_quantity(product_id, new_quantity, seller_name=None, invoice_
         # Update product quantity
         cursor.execute("UPDATE products SET quantity = %s WHERE id = %s", (new_quantity, product_id))
         
-        # Record the change in history with seller information
+        # Record the change in history with seller information and user_id
         current_time = datetime.now()
-        print(f"Recording history: product_id={product_id}, old={old_quantity}, new={new_quantity}, time={current_time}")
+        print(f"Recording history: product_id={product_id}, old={old_quantity}, new={new_quantity}, time={current_time}, user_id={user_id}")
         cursor.execute(
-            "INSERT INTO quantity_history (product_id, old_quantity, new_quantity, change_date, seller_name, invoice_number) VALUES (%s, %s, %s, %s, %s, %s)",
-            (product_id, old_quantity, new_quantity, current_time, seller_name, invoice_number)
+            "INSERT INTO quantity_history (product_id, old_quantity, new_quantity, change_date, seller_name, invoice_number, user_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (product_id, old_quantity, new_quantity, current_time, seller_name, invoice_number, user_id)
         )
         
         conn.commit()
@@ -103,8 +104,21 @@ def get_quantity_history(product_id):
     conn = connect_db()
     cursor = conn.cursor()
     try:
+        # Select history and join with users table to get username
         cursor.execute(
-            "SELECT old_quantity, new_quantity, change_date, seller_name, invoice_number FROM quantity_history WHERE product_id = %s ORDER BY change_date DESC",
+            """
+            SELECT
+                qh.old_quantity,
+                qh.new_quantity,
+                qh.change_date,
+                qh.seller_name,
+                qh.invoice_number,
+                u.username -- Select the username
+            FROM quantity_history qh
+            LEFT JOIN users u ON qh.user_id = u.id -- Join with users table
+            WHERE qh.product_id = %s
+            ORDER BY qh.change_date DESC
+            """,
             (product_id,)
         )
         history = cursor.fetchall()

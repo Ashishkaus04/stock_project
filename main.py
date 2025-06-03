@@ -292,6 +292,17 @@ def main():
     
     ttk.Button(user_frame, text="Logout", command=logout, style='TButton').pack(side="right", padx=5)
 
+    # --- Menu Bar ---
+    menubar = tk.Menu(root)
+    root.config(menu=menubar)
+
+    # Admin Menu (or a new menu for User Management)
+    # We'll add this only if the logged-in user has an 'admin' role
+    if user_data.get('role') == 'admin':
+        adminmenu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Admin", menu=adminmenu)
+        adminmenu.add_command(label="Add New User", command=lambda: ui.add_user_window(root, auth_token))
+
     # Add search feature
     search_frame = tk.Frame(root)
     search_frame.pack(fill="x", pady=(5, 0))
