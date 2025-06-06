@@ -6,11 +6,16 @@ from datetime import datetime
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 
-def populate_tree(tree, search_term=None, auth_token=None):
+def populate_tree(tree, search_term=None, auth_token=None, item_user_map=None):
     """Populates the treeview with products, optionally filtered by search_term."""
+    # Clear existing items
     for row in tree.get_children():
         tree.delete(row)
     
+    # Clear the user map if provided
+    if item_user_map is not None:
+        item_user_map.clear()
+
     try:
         # Construct the API URL, adding search query parameter if search_term is provided
         url = f"{API_BASE_URL}/products"
@@ -28,12 +33,13 @@ def populate_tree(tree, search_term=None, auth_token=None):
         products = response.json()
         
         for product in products:
-            # The API returns product details as a dictionary
+            # The API returns product details as a dictionary, including last_changed_by_user_id
             item_id = product['id']
             name = product['name']
             category = product['category']
             quantity = product['quantity']
             min_stock = product['min_stock']
+            last_changed_by_user_id = product.get('last_changed_by_user_id') # Get the user ID
             
             # Format the row to show N/A for None values
             formatted_row = [
@@ -44,21 +50,27 @@ def populate_tree(tree, search_term=None, auth_token=None):
                 str(min_stock) if min_stock is not None else "N/A"
             ]
             
-            item = tree.insert("", "end", values=formatted_row)
+            item_iid = tree.insert("", "end", values=formatted_row)
             
+            # Store the user ID with the treeview item ID in the map if the map is provided
+            if item_user_map is not None and last_changed_by_user_id is not None:
+                item_user_map[item_iid] = last_changed_by_user_id
+
             # If quantity is below min_stock, tag the item
             # Ensure quantity and min_stock are treated as numbers for comparison
             try:
                 quantity_num = int(quantity) if quantity != "N/A" else 0
                 min_stock_num = int(min_stock) if min_stock != "N/A" else 0
                 if quantity_num < min_stock_num:
-                    tree.item(item, tags=('low_stock',))
+                    tree.item(item_iid, tags=('low_stock',))
             except ValueError:
                  # Handle cases where quantity or min_stock might not be valid numbers
                  pass
 
     except requests.exceptions.RequestException as e:
         messagebox.showerror("API Error", f"Failed to fetch products: {e}")
+    
+    # No explicit return needed as item_user_map is modified in place
 
 def add_product_window(root, tree=None, auth_token=None):
     win = tk.Toplevel(root)
@@ -741,13 +753,31 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
         response.raise_for_status()
         history = response.json()
 
+        # Dictionary to cache usernames by user ID
+        user_cache = {}
+
         for record in history:
             old_qty = record.get('old_quantity', 'N/A')
             new_qty = record.get('new_quantity', 'N/A')
             change_date_str = record.get('change_date', 'N/A')
             name = record.get('name', 'N/A')
             invoice_number = record.get('invoice_number', 'N/A')
-            changed_by = record.get('username', 'N/A')
+            user_id = record.get('user_id') # Get user_id from the record (can be None)
+
+            # Fetch username if user_id exists and not in cache
+            changed_by_username = "N/A" # Default value
+            if user_id is not None:
+                if user_id in user_cache:
+                    changed_by_username = user_cache[user_id]
+                else:
+                    try:
+                        user_response = requests.get(f"{API_BASE_URL}/users/{user_id}", headers=headers)
+                        user_response.raise_for_status()
+                        user_data = user_response.json()
+                        changed_by_username = user_data.get('username', f"User {user_id}") # Fallback to User ID
+                        user_cache[user_id] = changed_by_username # Cache the username
+                    except requests.exceptions.RequestException:
+                        changed_by_username = f"User {user_id} (Error)" # Indicate error fetching username
 
             change = "N/A"
             try:
@@ -765,7 +795,7 @@ def show_quantity_history(root, item_id, item_name, auth_token=None):
                 change_text,
                 name,
                 invoice_number,
-                changed_by
+                changed_by_username # Display the fetched username
             ))
 
     except requests.exceptions.RequestException as e:

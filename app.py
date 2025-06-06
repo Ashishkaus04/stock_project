@@ -57,7 +57,7 @@ def login():
 
 @app.route('/logout', methods=['POST'])
 @login_required
-def logout():
+def logout(user):
     auth_header = request.headers.get('Authorization')
     token = auth_header.split(' ')[1]
     user_manager.delete_session(token)
@@ -65,7 +65,7 @@ def logout():
 
 @app.route('/products', methods=['GET'])
 @login_required
-def get_products():
+def get_products(user):
     try:
         # Get the search term from the query parameters
         search_term = request.args.get('search')
@@ -73,15 +73,16 @@ def get_products():
         # Pass the search term to the database function
         products = db.get_all_products(search_term)
         
-        # Convert list of tuples to list of dicts
+        # Convert list of tuples to list of dicts, including the last_changed_by_user_id
         product_list = []
-        for product_id, name, category, quantity, min_stock in products:
+        for product_id, name, category, quantity, min_stock, last_changed_by_user_id in products:
             product_list.append({
                 'id': product_id,
                 'name': name,
                 'category': category,
                 'quantity': quantity,
-                'min_stock': min_stock
+                'min_stock': min_stock,
+                'last_changed_by_user_id': last_changed_by_user_id # Include the user ID
             })
         return jsonify(product_list)
     except Exception as e:
@@ -89,7 +90,7 @@ def get_products():
 
 @app.route('/product/<int:product_id>', methods=['GET', 'DELETE'])
 @login_required
-def get_product(product_id):
+def get_product(product_id, user):
     if request.method == 'GET':
         product = db.get_product_details(product_id)
         if product:
@@ -118,21 +119,21 @@ def get_product(product_id):
 
 @app.route('/product', methods=['POST'])
 @login_required
-def add_product():
-    data = request.json
-    if not data or not 'name' in data or not 'quantity' in data:
-        return jsonify({'error': 'Missing name or quantity'}), 400
-
+def add_product(user):
+    data = request.get_json()
     name = data.get('name')
     category = data.get('category')
     quantity = data.get('quantity')
     min_stock = data.get('min_stock')
-
+    
+    if not all([name, category, quantity, min_stock]):
+        return jsonify({'error': 'Missing required fields'}), 400
+        
     try:
         product_id = db.add_product(name, category, quantity, min_stock)
-        return jsonify({'success': 'Product added', 'product_id': product_id}), 201
+        return jsonify({'id': product_id}), 201
     except Exception as e:
-         return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/product/<int:product_id>/quantity', methods=['PUT'])
 @login_required
@@ -153,18 +154,18 @@ def update_product_qty(product_id, user):
 
 @app.route('/product/<int:product_id>/history', methods=['GET'])
 @login_required
-def get_history(product_id):
+def get_history(product_id, user):
     history = db.get_quantity_history(product_id)
     # Convert list of tuples to list of dicts
     history_list = []
-    for old_qty, new_qty, change_date, name, invoice_number, username in history:
+    for old_qty, new_qty, change_date, name, invoice_number, user_id in history:
          history_list.append({
             'old_quantity': old_qty,
             'new_quantity': new_qty,
             'change_date': change_date.isoformat() if isinstance(change_date, datetime) else str(change_date),
             'name': name,
             'invoice_number': invoice_number,
-            'username': username
+            'user_id': user_id
         })
     return jsonify(history_list)
 
@@ -178,7 +179,7 @@ def create_db_tables():
 
 @app.route('/stock', methods=['GET'])
 @login_required
-def get_stock_data():
+def get_stock_data(user):
     try:
         stock_data = db.get_stock_data() # Assuming this function exists in db.py
         # Convert list of tuples to list of dicts for JSON
@@ -222,6 +223,28 @@ def debug_users():
         for user_id, username, role in users:
             user_list.append({'id': user_id, 'username': username, 'role': role})
         return jsonify(user_list)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+@login_required
+def get_user_by_id(user_id, user):
+    """Fetches user details by user ID from the SQLite database."""
+    try:
+        conn = sqlite3.connect('stock.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, role FROM users WHERE id = ?', (user_id,))
+        user_data = cursor.fetchone()
+        conn.close()
+
+        if user_data:
+            return jsonify({
+                'id': user_data[0],
+                'username': user_data[1],
+                'role': user_data[2]
+            })
+        else:
+            return jsonify({'error': 'User not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

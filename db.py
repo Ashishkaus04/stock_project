@@ -8,40 +8,49 @@ def connect_db():
 def create_tables():
     conn = connect_db()
     cursor = conn.cursor()
-    
-    # Create products table with unique name
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS products (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            category TEXT,
-            quantity INTEGER,
-            min_stock INTEGER,
-            created_date TIMESTAMP
-        )
-    """)
-    
-    # Create quantity_history table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS quantity_history (
-            id SERIAL PRIMARY KEY,
-            product_id INTEGER REFERENCES products(id),
-            old_quantity INTEGER,
-            new_quantity INTEGER,
-            change_date TIMESTAMP,
-            seller_name TEXT,
-            invoice_number TEXT,
-            user_id INTEGER REFERENCES users(id)
-        )
-    """)
-    
-    # Verify tables exist (PostgreSQL version)
-    cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
-    tables = cursor.fetchall()
-    print("Existing tables:", [table[0] for table in tables])
-    
-    conn.commit()
-    conn.close()
+    try:
+        # Drop existing tables if they exist
+        cursor.execute("DROP TABLE IF EXISTS quantity_history")
+        cursor.execute("DROP TABLE IF EXISTS products")
+        
+        # Create products table with unique name
+        cursor.execute("""
+            CREATE TABLE products (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                category TEXT,
+                quantity INTEGER,
+                min_stock INTEGER,
+                created_date TIMESTAMP
+            )
+        """)
+        
+        # Create quantity_history table
+        cursor.execute("""
+            CREATE TABLE quantity_history (
+                id SERIAL PRIMARY KEY,
+                product_id INTEGER REFERENCES products(id),
+                old_quantity INTEGER,
+                new_quantity INTEGER,
+                change_date TIMESTAMP,
+                seller_name TEXT,
+                invoice_number TEXT,
+                user_id INTEGER
+            )
+        """)
+        
+        # Verify tables exist (PostgreSQL version)
+        cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+        tables = cursor.fetchall()
+        print("Existing tables:", [table[0] for table in tables])
+        
+        conn.commit()
+    except Exception as e:
+        print(f"Error creating tables: {str(e)}")
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
 
 def add_product(name, category, quantity, min_stock):
     conn = connect_db()
@@ -104,7 +113,7 @@ def get_quantity_history(product_id):
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        # Select history and join with users table to get username
+        # Select history without joining with users table
         cursor.execute(
             """
             SELECT
@@ -113,9 +122,8 @@ def get_quantity_history(product_id):
                 qh.change_date,
                 qh.seller_name,
                 qh.invoice_number,
-                u.username -- Select the username
+                qh.user_id
             FROM quantity_history qh
-            LEFT JOIN users u ON qh.user_id = u.id -- Join with users table
             WHERE qh.product_id = %s
             ORDER BY qh.change_date DESC
             """,
@@ -146,16 +154,29 @@ def get_all_products(search_term=None):
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        sql_query = "SELECT id, name, category, quantity, min_stock FROM products"
+        # SQL query to select product details and the user_id of the latest history entry
+        sql_query = """
+            SELECT
+                p.id,
+                p.name,
+                p.category,
+                p.quantity,
+                p.min_stock,
+                -- Select the user_id from the most recent history entry for this product
+                (SELECT user_id FROM quantity_history qh WHERE qh.product_id = p.id ORDER BY qh.change_date DESC LIMIT 1) as last_changed_by_user_id
+            FROM products p
+        """
+        params = ()
+
         if search_term:
             # Add WHERE clause to filter by name or category (case-insensitive)
-            sql_query += " WHERE LOWER(name) LIKE LOWER(%s) OR LOWER(category) LIKE LOWER(%s)"
+            sql_query += " WHERE LOWER(p.name) LIKE LOWER(%s) OR LOWER(p.category) LIKE LOWER(%s)"
             # Add wildcard to search term for LIKE query
             search_pattern = f"%{search_term}%"
-            cursor.execute(sql_query, (search_pattern, search_pattern))
-        else:
-            cursor.execute(sql_query)
-            
+            params = (search_pattern, search_pattern)
+
+        cursor.execute(sql_query, params)
+
         return cursor.fetchall()
     except Exception as e:
         print(f"Error getting all products: {str(e)}")

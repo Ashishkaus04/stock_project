@@ -420,21 +420,22 @@ def main():
                 return
 
             history_data = []
-            product_names = {}
+            product_info_map = {}
+            user_cache = {} # Dictionary to cache usernames by user ID
 
             try:
                 for sel in selected:
                     item = tree.item(sel)['values']
                     item_id = int(item[0]) # Ensure item_id is integer
 
-                    # Fetch product details from API
+                    # Fetch product details from API (to get name and category)
                     product_response = requests.get(
                         f"{API_BASE_URL}/product/{item_id}",
                         headers={"Authorization": f"Bearer {auth_token}"}
                     )
                     product_response.raise_for_status()
                     product = product_response.json()
-                    product_names[item_id] = (product.get('name', 'N/A'), product.get('category', 'N/A'))
+                    product_info_map[item_id] = (product.get('name', 'N/A'), product.get('category', 'N/A'))
 
                     # Fetch history from API
                     history_response = requests.get(
@@ -456,8 +457,24 @@ def main():
                              continue # Skip if no change_date
 
                         # Filter by date range
-                        if change_date_dt < start_dt or change_date_dt > end_dt:
+                        if start_dt and change_date_dt < start_dt or end_dt and change_date_dt > end_dt:
                             continue
+
+                        user_id = record.get('user_id') # Get user_id from the history record
+                        changed_by_username = "N/A" # Default value
+                        if user_id is not None:
+                            if user_id in user_cache:
+                                changed_by_username = user_cache[user_id]
+                            else:
+                                try:
+                                    user_response = requests.get(f"{API_BASE_URL}/users/{user_id}", headers={"Authorization": f"Bearer {auth_token}"})
+                                    user_response.raise_for_status()
+                                    user_data = user_response.json()
+                                    changed_by_username = user_data.get('username', f"User {user_id}") # Fallback to User ID
+                                    user_cache[user_id] = changed_by_username # Cache the username
+                                except requests.exceptions.RequestException:
+                                     changed_by_username = f"User {user_id} (Error)" # Indicate error fetching username
+
 
                         history_data.append({
                             "product_id": item_id,
@@ -465,7 +482,8 @@ def main():
                             "new_quantity": record.get('new_quantity'),
                             "change_date": change_date_dt,
                             "name": record.get('name'), # This is seller/buyer name from history
-                            "invoice_number": record.get('invoice_number')
+                            "invoice_number": record.get('invoice_number'),
+                            "changed_by": changed_by_username # Include the username
                         })
 
             except requests.exceptions.RequestException as e:
@@ -475,17 +493,18 @@ def main():
             # Sort history data by date (optional, but good for chronological export)
             history_data.sort(key=lambda x: x['change_date'])
 
-            with open(file_path, 'w', newline='') as csvfile:
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(["Product Name", "Category", "Date", "Old Quantity", "New Quantity", "Change", "Name", "Invoice Number"])
+                writer.writerow(["Product Name", "Category", "Date", "Old Quantity", "New Quantity", "Change", "Seller/Buyer Name", "Invoice Number", "Changed By"])
 
                 for record in history_data:
-                    product_name, product_category = product_names.get(record['product_id'], ("N/A", "N/A"))
+                    product_name, product_category = product_info_map.get(record['product_id'], ("N/A", "N/A"))
                     old_qty = record['old_quantity']
                     new_qty = record['new_quantity']
                     change_date_dt = record['change_date']
                     name = record['name']
                     invoice_number = record['invoice_number']
+                    changed_by = record['changed_by'] # Get the username
 
                     change = "N/A"
                     try:
@@ -496,7 +515,7 @@ def main():
                     except (ValueError, TypeError):
                         change_text = "N/A"
 
-                    date_str = change_date_dt.strftime("%Y-%m-%d %H:%M")
+                    date_str = change_date_dt.strftime("%Y-%m-%d %H:%M:%S") # Include seconds for precision
 
                     writer.writerow([
                         product_name,
@@ -506,7 +525,8 @@ def main():
                         new_qty if new_qty is not None else "N/A",
                         change_text,
                         name or "N/A",
-                        invoice_number or "N/A"
+                        invoice_number or "N/A",
+                        changed_by or "N/A" # Write the username
                     ])
 
             tk.messagebox.showinfo("Success", f"History exported successfully to:\n{file_path}")
