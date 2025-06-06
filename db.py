@@ -3,7 +3,7 @@ from datetime import datetime
 
 def connect_db():
     # Use the provided Render PostgreSQL external database URL
-    return psycopg2.connect("postgresql://stack_project_mvd_user:cNnrEDOdsE1dWTK5JDv4FkbzwDbScnyu@dpg-d0r9dgh5pdvs73dpd4pg-a.oregon-postgres.render.com/stack_project_mvd")
+    return psycopg2.connect("postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require")
 
 def create_tables():
     conn = connect_db()
