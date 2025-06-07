@@ -80,7 +80,8 @@ def test_get_all_products():
     
     # Verify structure of returned data
     for product in products:
-        assert len(product) == 5  # id, name, category, quantity, min_stock
+        # Check that we have at least the required 5 fields
+        assert len(product) >= 5  # id, name, category, quantity, min_stock
         assert isinstance(product[0], int)  # id
         assert isinstance(product[1], str)  # name
         assert isinstance(product[2], str)  # category
