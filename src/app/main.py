@@ -11,6 +11,10 @@ import os
 import tempfile
 import json
 import shutil
+import threading
+from flask import Flask
+from app.api.app import create_app
+from waitress import serve # Import waitress
 
 # Import from local packages
 from .ui import ui
@@ -232,26 +236,25 @@ def apply_update():
         print("No update file found to apply.")
         return False # Indicate no update file was present
 
+def run_flask_app():
+    app = create_app()
+    serve(app, host='127.0.0.1', port=5000) # Use waitress to serve the app
+
 def main():
     # Attempt to apply update on startup
     update_applied = apply_update()
-    # If update was applied, the new exe is running, so this instance continues.
-    # If update failed or no update was pending, continue with normal startup.
-
-    # Start the Flask backend server in a separate process
+    
+    # Start the Flask backend server in a separate thread
     try:
-        # Use sys.executable to ensure the same Python interpreter is used
-        # The command should be 'python run_api.py'
-        # We run in the background and capture output to avoid blocking
-        backend_process = subprocess.Popen([sys.executable, 'run_api.py'], cwd='.')
-        print("Backend process started with PID:", backend_process.pid)
+        flask_thread = threading.Thread(target=run_flask_app, daemon=True)
+        flask_thread.start()
+        print("Backend server started in thread")
     except Exception as e:
-        print(f"Failed to start backend process: {e}")
-        messagebox.showerror("Startup Error", "Failed to start the backend server. Please ensure run_api.py is in the correct directory.")
-        return # Exit if the backend fails to start
+        print(f"Failed to start backend server: {e}")
+        messagebox.showerror("Startup Error", "Failed to start the backend server.")
+        return
 
-    # Check for updates after starting the backend (or before, depending on preference)
-    # We check if an update was just applied to avoid re-checking immediately.
+    # Check for updates after starting the backend
     if not update_applied:
        check_for_updates()
 
