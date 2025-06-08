@@ -1,7 +1,7 @@
-from .api.app import app
+from .api.app import create_app
 
-# This is the application variable that gunicorn expects
-application = app
+# Create the application instance
+application = create_app()
 
 if __name__ == "__main__":
     application.run() 
