@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 # import db # Remove direct db import
-import ui
 from datetime import datetime, time
 from tkcalendar import DateEntry
 import csv
@@ -12,6 +11,10 @@ import os
 import tempfile
 import json
 import shutil
+
+# Import from local packages
+from .ui import ui
+from .database import db
 
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
@@ -26,8 +29,8 @@ UPDATE_TEMP_FILE = "main.exe.temp"
 OLD_EXE_FILE = "main.exe.old"
 
 # Define default font configuration
-DEFAULT_FONT = ('Helvetica', 10)
-HEADING_FONT = ('Helvetica', 10, 'bold')
+DEFAULT_FONT = ('Helvetica', 12)
+HEADING_FONT = ('Helvetica', 12, 'bold')
 
 class LoginWindow:
     def __init__(self):
@@ -238,13 +241,13 @@ def main():
     # Start the Flask backend server in a separate process
     try:
         # Use sys.executable to ensure the same Python interpreter is used
-        # The command should be 'python app.py'
+        # The command should be 'python run_api.py'
         # We run in the background and capture output to avoid blocking
-        backend_process = subprocess.Popen([sys.executable, 'app.py'], cwd='.')
+        backend_process = subprocess.Popen([sys.executable, 'run_api.py'], cwd='.')
         print("Backend process started with PID:", backend_process.pid)
     except Exception as e:
         print(f"Failed to start backend process: {e}")
-        messagebox.showerror("Startup Error", "Failed to start the backend server. Please ensure app.py is in the correct directory.")
+        messagebox.showerror("Startup Error", "Failed to start the backend server. Please ensure run_api.py is in the correct directory.")
         return # Exit if the backend fails to start
 
     # Check for updates after starting the backend (or before, depending on preference)
@@ -302,6 +305,61 @@ def main():
         adminmenu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Admin", menu=adminmenu)
         adminmenu.add_command(label="Add New User", command=lambda: ui.add_user_window(root, auth_token))
+
+        def show_users_window():
+            users_win = tk.Toplevel(root)
+            users_win.title("All Users")
+            users_tree = ttk.Treeview(users_win, columns=("ID", "Username", "Role"), show="headings")
+            for col in ("ID", "Username", "Role"):
+                users_tree.heading(col, text=col)
+                users_tree.column(col, width=120)
+            users_tree.pack(fill="both", expand=True, padx=10, pady=10)
+            try:
+                response = requests.get(f"{API_BASE_URL}/debug/users")
+                response.raise_for_status()
+                users = response.json()
+                for user in users:
+                    users_tree.insert("", "end", values=(user['id'], user['username'], user['role']))
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to fetch users: {e}")
+
+        def delete_user_window():
+            del_win = tk.Toplevel(root)
+            del_win.title("Delete User")
+            users_tree = ttk.Treeview(del_win, columns=("ID", "Username", "Role"), show="headings")
+            for col in ("ID", "Username", "Role"):
+                users_tree.heading(col, text=col)
+                users_tree.column(col, width=120)
+            users_tree.pack(fill="both", expand=True, padx=10, pady=10)
+            try:
+                response = requests.get(f"{API_BASE_URL}/debug/users")
+                response.raise_for_status()
+                users = response.json()
+                for user in users:
+                    users_tree.insert("", "end", values=(user['id'], user['username'], user['role']))
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to fetch users: {e}")
+                return
+            def delete_selected():
+                selected = users_tree.selection()
+                if not selected:
+                    messagebox.showwarning("Warning", "Please select a user to delete.")
+                    return
+                user_id = users_tree.item(selected[0])['values'][0]
+                if messagebox.askyesno("Confirm", f"Are you sure you want to delete user ID {user_id}?"):
+                    try:
+                        response = requests.delete(f"{API_BASE_URL}/users/{user_id}", headers={"Authorization": f"Bearer {auth_token}"})
+                        if response.status_code == 200:
+                            messagebox.showinfo("Success", "User deleted successfully.")
+                            users_tree.delete(selected[0])
+                        else:
+                            messagebox.showerror("Error", f"Failed to delete user: {response.text}")
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Failed to delete user: {e}")
+            tk.Button(del_win, text="Delete Selected User", command=delete_selected, font=DEFAULT_FONT).pack(pady=10)
+
+        adminmenu.add_command(label="Show Users", command=show_users_window)
+        adminmenu.add_command(label="Delete User", command=delete_user_window)
 
     # Add search feature
     search_frame = tk.Frame(root)
@@ -361,7 +419,7 @@ def main():
     tree = ttk.Treeview(root, columns=columns, show="headings")
     for col in columns:
         tree.heading(col, text=col)
-        tree.column(col, width=100)
+        tree.column(col, width=160)
     tree.pack(fill="both", expand=True)
 
     # Configure the tag for low stock items
@@ -532,7 +590,7 @@ def main():
             tk.messagebox.showinfo("Success", f"History exported successfully to:\n{file_path}")
         tk.Button(prompt, text="OK", command=on_ok).grid(row=2, column=0, columnspan=2, pady=10)
 
-    tk.Button(btn_frame, text="Export to CSV", command=export_selected_to_csv, font=DEFAULT_FONT, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Export to CSV", command=export_selected_to_csv, font=DEFAULT_FONT, width=16).pack(side="left", padx=5)
 
     def print_stock():
         # Ask for file path

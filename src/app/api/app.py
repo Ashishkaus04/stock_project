@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
-import db
 from flask_cors import CORS
-from user_management import user_manager
 import functools
 import sqlite3
+
+# Import from local packages
+from ..database import db
+from ..utils.user_management import user_manager
 
 app = Flask(__name__)
 CORS(app)
@@ -247,6 +249,19 @@ def get_user_by_id(user_id, user):
             return jsonify({'error': 'User not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/users/<int:user_id>', methods=['DELETE'])
+@login_required
+def delete_user(user_id, user):
+    # Only allow admin to delete users
+    if user['role'] != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    conn = sqlite3.connect('src/app/database/stock.db')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': f'User with ID {user_id} deleted'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True) 

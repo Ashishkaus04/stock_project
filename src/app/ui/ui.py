@@ -3,6 +3,9 @@ from tkinter import ttk, messagebox, filedialog
 import requests
 from datetime import datetime
 
+# Import from local packages
+from ..database import db
+
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
 

@@ -1,4 +1,4 @@
-from api import app
+from .api.app import app
 
 # This is the application variable that gunicorn expects
 application = app
