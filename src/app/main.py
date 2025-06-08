@@ -20,6 +20,11 @@ from waitress import serve # Import waitress
 from .ui import ui
 from .database import db
 
+from dotenv import load_dotenv # Import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
 API_BASE_URL = "https://stock-project-nnei.onrender.com"
 
