@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
-export PYTHONPATH=$PYTHONPATH:$(pwd)
-waitress-serve --host=0.0.0.0 --port=$PORT src.app.api.app:app 
+cd src
+waitress-serve --host=0.0.0.0 --port=$PORT app.api.app:create_app --call 

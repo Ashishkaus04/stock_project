@@ -21,7 +21,7 @@ from .ui import ui
 from .database import db
 
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
-API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
+API_BASE_URL = "https://stock-project-nnei.onrender.com"
 
 # Auto-update configuration
 CURRENT_VERSION = "1.1" # !!! IMPORTANT: Update this version number for each new release
