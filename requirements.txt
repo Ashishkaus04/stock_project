@@ -1,9 +1,9 @@
-psycopg2-binary==2.9.9
+psycopg[binary]==3.2.9
 Flask==3.0.2
 requests==2.31.0
 gunicorn==21.2.0
 tkcalendar==1.6.1
-pyinstaller==6.3.0
+pyinstaller
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 python-dotenv==1.0.1
