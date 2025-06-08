@@ -3,7 +3,7 @@ services:
     name: stock-management-api
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: waitress-serve --host=0.0.0.0 --port=$PORT src.app.wsgi:application
     envVars:
       - key: DATABASE_URL
         value: postgresql://stack_project_mvd_user:cNnrEDOdsE1dWTK5JDv4FkbzwDbScnyu@dpg-d0r9dgh5pdvs73dpd4pg-a.oregon-postgres.render.com/stack_project_mvd 
