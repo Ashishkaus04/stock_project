@@ -74,6 +74,12 @@ def tables_exist():
             """)
             return cursor.fetchone()[0]
 
+def get_user_count():
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM users")
+            return cursor.fetchone()[0]
+
 def add_product(name, category, quantity, min_stock):
     with connect_db() as conn:
         with conn.cursor() as cursor:

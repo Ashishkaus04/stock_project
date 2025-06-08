@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from datetime import datetime
 from flask_cors import CORS
 import functools
+import os
 # import sqlite3 # No longer needed if using PostgreSQL
 
 # Import from local packages
@@ -9,13 +10,20 @@ from app.database import db
 from app.utils.user_management import user_manager
 
 def create_app():
-    app = Flask(__name__)
+    # Set static_folder relative to the instance path of the app (or to the current working directory after cd src)
+    app = Flask(__name__, static_folder='../../static')
     CORS(app)
 
     # Ensure database tables are created on startup if they don't exist
     with app.app_context(): # Essential for Flask-SQLAlchemy, good practice even without it
         if not db.tables_exist():
             db.create_tables()
+
+        # Create a default admin user if no users exist
+        if db.get_user_count() == 0:
+            print("No users found. Creating default admin user...")
+            user_manager.create_user("admin", "admin123", "admin")
+            print("Default admin user created.")
 
     def login_required(f):
         @functools.wraps(f)
@@ -37,6 +45,11 @@ def create_app():
     @app.route('/')
     def index():
         return 'Stock Management API'
+
+    # Route to serve static files (like version.json)
+    @app.route('/static/<path:filename>')
+    def static_files(filename):
+        return send_from_directory(app.static_folder, filename)
 
     @app.route('/login', methods=['POST'])
     def login():
