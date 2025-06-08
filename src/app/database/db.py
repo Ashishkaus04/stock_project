@@ -231,3 +231,15 @@ def delete_product(product_id):
                 print(f"Error deleting product: {str(e)}")
                 conn.rollback()
                 raise e
+
+def get_all_users():
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("SELECT id, username, role FROM users")
+                users = cursor.fetchall()
+                print(f"Found {len(users)} users.")
+                return users
+            except Exception as e:
+                print(f"Error getting all users: {str(e)}")
+                return []

@@ -31,6 +31,7 @@ env/
 *.swo
 
 # Project specific
+run.spec
 version.json
 *.db
 *.sqlite3
