@@ -237,6 +237,7 @@ def create_app():
         try:
             # Use the PostgreSQL connection to fetch users
             users = db.get_all_users() # Assuming this function exists in db.py
+            print(f"API: Found {len(users)} users for /debug/users endpoint.") # Debug print
             user_list = []
             for user_id, username, role in users:
                 user_list.append({'id': user_id, 'username': username, 'role': role})
