@@ -82,7 +82,19 @@ def tables_exist():
                     AND table_name = 'users'
                 );
             """)
-            return cursor.fetchone()[0]
+            users_table_exists = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    AND table_name = 'sessions'
+                );
+            """)
+            sessions_table_exists = cursor.fetchone()[0]
+
+            return users_table_exists and sessions_table_exists
 
 def get_user_count():
     with connect_db() as conn:
