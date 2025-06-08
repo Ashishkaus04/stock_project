@@ -48,6 +48,16 @@ def create_tables():
                         role TEXT DEFAULT 'user'
                     )
                 """)
+
+                # Create sessions table if not exists
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        token TEXT PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP NOT NULL
+                    )
+                """)
                 
                 # Verify tables exist (PostgreSQL version)
                 cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
@@ -243,3 +253,87 @@ def get_all_users():
             except Exception as e:
                 print(f"Error getting all users: {str(e)}")
                 return []
+
+def add_user_to_db(username, password_hash, role):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) RETURNING id", (username, password_hash, role))
+                conn.commit()
+                return cursor.fetchone()[0]
+            except psycopg.errors.UniqueViolation:
+                print(f"Error: Username '{username}' already exists.")
+                return None
+            except Exception as e:
+                print(f"Error adding user to database: {str(e)}")
+                conn.rollback()
+                raise e
+
+def get_user_by_credentials(username, password_hash):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("SELECT id, username, role FROM users WHERE username = %s AND password_hash = %s", (username, password_hash))
+                user = cursor.fetchone()
+                return user
+            except Exception as e:
+                print(f"Error getting user by credentials: {str(e)}")
+                return None
+
+def get_user_by_id(user_id):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("SELECT id, username, role FROM users WHERE id = %s", (user_id,))
+                user = cursor.fetchone()
+                return user
+            except Exception as e:
+                print(f"Error getting user by ID: {str(e)}")
+                return None
+
+def add_session_to_db(token, user_id, expires_at):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("INSERT INTO sessions (token, user_id, expires_at) VALUES (%s, %s, %s)", (token, user_id, expires_at))
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Error adding session to database: {str(e)}")
+                conn.rollback()
+                raise e
+
+def get_session_from_db(token):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("SELECT user_id, expires_at FROM sessions WHERE token = %s AND expires_at > NOW()", (token,))
+                session_data = cursor.fetchone()
+                return session_data
+            except Exception as e:
+                print(f"Error getting session from database: {str(e)}")
+                return None
+
+def remove_session_from_db(token):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("DELETE FROM sessions WHERE token = %s", (token,))
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Error removing session from database: {str(e)}")
+                conn.rollback()
+                return False
+
+def remove_expired_sessions():
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("DELETE FROM sessions WHERE expires_at <= NOW()")
+                conn.commit()
+                return True
+            except Exception as e:
+                print(f"Error cleaning up expired sessions: {str(e)}")
+                conn.rollback()
+                return False
