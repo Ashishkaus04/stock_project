@@ -29,7 +29,7 @@ load_dotenv()
 API_BASE_URL = "https://stock-project-nnei.onrender.com"
 
 # Auto-update configuration
-CURRENT_VERSION = "1.1" # !!! IMPORTANT: Update this version number for each new release
+CURRENT_VERSION = "1.0.2" # !!! IMPORTANT: Update this version number for each new release
 VERSION_URL = "https://stock-project-nnei.onrender.com/static/version.json"
 DOWNLOAD_URL = "https://stock-project-nnei.onrender.com/static/main.exe"
 
@@ -101,7 +101,13 @@ class LoginWindow:
             if response.status_code == 200:
                 data = response.json()
                 self.user_data = data['user']
-                self.auth_token = data['token']
+                self.auth_token = data.get('token') # Use .get() to safely handle missing key
+
+                if not isinstance(self.auth_token, str) or not self.auth_token:
+                    messagebox.showerror("Login Failed", "Authentication token missing or invalid. Please try again or contact support.")
+                    self.login_successful = False # Ensure login is marked as unsuccessful
+                    return # Stop processing
+                
                 print(f"DEBUG: Login Successful. Auth Token: {self.auth_token[:10]}...") # Log partial token
                 self.login_successful = True
                 self.root.destroy()
