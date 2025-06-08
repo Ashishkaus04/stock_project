@@ -28,6 +28,23 @@ A simple inventory management application built with Python and Tkinter.
    pip install -r requirements.txt
    ```
 
+## Data Migration (SQLite to PostgreSQL)
+If you have existing data in a SQLite database or a CSV file and wish to migrate it to your PostgreSQL database, follow these steps:
+
+1.  **Update the migration script:**
+    *   Open `src/app/database/migrate_data.py`.
+    *   If migrating from a SQLite `.db` file, ensure `connect_sqlite()` points to your SQLite database file (e.g., `sqlite3.connect(r"F:\path\to\your\inventory.db")`).
+    *   If migrating `quantity_history` from a CSV file, update the `csv_file_path` variable to the absolute path of your CSV file (e.g., `r"C:\Users\YourUser\Downloads\your_history.csv"`).
+
+2.  **Ensure CSV format (for Quantity History):** If you are importing `quantity_history` from a CSV, ensure it has the following columns in the header (case-insensitive, exact wording): `Product Name`, `Category`, `Date`, `Old Quantity`, `New Quantity`, `Seller/Buyer Name`, `Invoice Number`, `Changed By`.
+
+3.  **Run the migration script:**
+    ```sh
+    python src/app/database/migrate_data.py
+    ```
+    *   The script will attempt to migrate products from the SQLite database first (if specified and not empty). If products are not found from SQLite, or if `quantity_history` is being imported from CSV, it will attempt to find or create products in the PostgreSQL database based on 'Product Name' and 'Category' from the CSV.
+    *   It will then migrate quantity history and users (if the users table exists in SQLite and the migration for users is uncommented in the script).
+
 ## Usage
 Run the Tkinter client application. It will connect to the Flask API deployed on Render:
 ```sh
