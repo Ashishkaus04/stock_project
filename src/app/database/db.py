@@ -342,10 +342,22 @@ def remove_expired_sessions():
     with connect_db() as conn:
         with conn.cursor() as cursor:
             try:
-                cursor.execute("DELETE FROM sessions WHERE expires_at <= NOW()")
+                cursor.execute("DELETE FROM sessions WHERE expires_at < NOW()")
                 conn.commit()
-                return True
+                print("Expired sessions cleaned up.")
             except Exception as e:
                 print(f"Error cleaning up expired sessions: {str(e)}")
+
+def delete_user(user_id):
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            try:
+                cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+                deleted_count = cursor.rowcount
+                conn.commit()
+                print(f"Deleted {deleted_count} user(s) with ID {user_id}.")
+                return deleted_count
+            except Exception as e:
+                print(f"Error deleting user: {str(e)}")
                 conn.rollback()
-                return False
+                raise e
