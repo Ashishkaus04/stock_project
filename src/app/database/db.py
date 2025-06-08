@@ -70,7 +70,7 @@ def tables_exist():
                     FROM information_schema.tables
                     WHERE table_schema = 'public'
                     AND table_name = 'users'
-                ); # Check for the 'users' table as an indicator
+                );
             """)
             return cursor.fetchone()[0]
 
