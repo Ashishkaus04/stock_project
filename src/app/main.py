@@ -249,16 +249,6 @@ def main():
     # Attempt to apply update on startup
     update_applied = apply_update()
     
-    # Start the Flask backend server in a separate thread
-    try:
-        flask_thread = threading.Thread(target=run_flask_app, daemon=True)
-        flask_thread.start()
-        print("Backend server started in thread")
-    except Exception as e:
-        print(f"Failed to start backend server: {e}")
-        messagebox.showerror("Startup Error", "Failed to start the backend server.")
-        return
-
     # Check for updates after starting the backend
     if not update_applied:
        check_for_updates()

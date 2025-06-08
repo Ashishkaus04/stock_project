@@ -7,7 +7,7 @@ from datetime import datetime
 from ..database import db
 
 # Define the base URL for your Flask API (placeholder - replace with your Render service URL)
-API_BASE_URL = "http://127.0.0.1:5000" # Replace with your Render service URL later
+API_BASE_URL = "https://stock-project-nnei.onrender.com" # Replace with your Render service URL later
 
 def populate_tree(tree, search_term=None, auth_token=None, item_user_map=None):
     """Populates the treeview with products, optionally filtered by search_term."""
