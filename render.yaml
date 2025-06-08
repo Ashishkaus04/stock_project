@@ -8,4 +8,4 @@ services:
     startCommand: ./start.sh
     envVars:
       - key: DATABASE_URL
-        value: postgresql://stack_project_mvd_user:cNnrEDOdsE1dWTK5JDv4FkbzwDbScnyu@dpg-d0r9dgh5pdvs73dpd4pg-a.oregon-postgres.render.com/stack_project_mvd 
+        value: postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require 

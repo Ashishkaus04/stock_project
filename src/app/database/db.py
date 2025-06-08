@@ -1,9 +1,13 @@
 import psycopg
 from datetime import datetime
+import os
 
 def connect_db():
-    # Use the provided Render PostgreSQL external database URL
-    return psycopg.connect("postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require")
+    # Use the DATABASE_URL environment variable
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set")
+    return psycopg.connect(database_url)
 
 def create_tables():
     with connect_db() as conn:
