@@ -42,7 +42,9 @@ class UserManager:
         token = secrets.token_hex(32)
         expires_at = datetime.now() + timedelta(hours=24)
         
-        return db.add_session_to_db(token, user_id, expires_at)
+        if db.add_session_to_db(token, user_id, expires_at):
+            return token # Return the token if added successfully
+        return None # Return None if session creation failed
 
     def verify_session(self, token):
         """Verify a session token and return the associated user."""

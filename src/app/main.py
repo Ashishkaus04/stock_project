@@ -100,6 +100,7 @@ class LoginWindow:
             
             if response.status_code == 200:
                 data = response.json()
+                print(f"DEBUG: Raw login API response data: {data}")
                 self.user_data = data['user']
                 self.auth_token = data.get('token') # Use .get() to safely handle missing key
 

@@ -20,7 +20,7 @@ A simple inventory management application built with Python and Tkinter.
 ## Setup
 1. **Clone the repository:**
    ```sh
-   git clone <your-repo-url>
+   git clone "https://github.com/Ashishkaus04/stock_project.git"
    cd stock_project
    ```
 2. **Install dependencies:**
