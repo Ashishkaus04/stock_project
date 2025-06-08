@@ -13,13 +13,9 @@ def create_tables():
     with connect_db() as conn:
         with conn.cursor() as cursor:
             try:
-                # Drop existing tables if they exist
-                cursor.execute("DROP TABLE IF EXISTS quantity_history")
-                cursor.execute("DROP TABLE IF EXISTS products")
-                
-                # Create products table with unique name
+                # Create products table if not exists
                 cursor.execute("""
-                    CREATE TABLE products (
+                    CREATE TABLE IF NOT EXISTS products (
                         id SERIAL PRIMARY KEY,
                         name TEXT NOT NULL UNIQUE,
                         category TEXT,
@@ -29,11 +25,11 @@ def create_tables():
                     )
                 """)
                 
-                # Create quantity_history table
+                # Create quantity_history table if not exists
                 cursor.execute("""
-                    CREATE TABLE quantity_history (
+                    CREATE TABLE IF NOT EXISTS quantity_history (
                         id SERIAL PRIMARY KEY,
-                        product_id INTEGER REFERENCES products(id),
+                        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
                         old_quantity INTEGER,
                         new_quantity INTEGER,
                         change_date TIMESTAMP,
@@ -43,16 +39,40 @@ def create_tables():
                     )
                 """)
                 
+                # Create users table if not exists
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        role TEXT DEFAULT 'user'
+                    )
+                """)
+                
                 # Verify tables exist (PostgreSQL version)
                 cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
                 tables = cursor.fetchall()
                 print("Existing tables:", [table[0] for table in tables])
                 
                 conn.commit()
+                print("Tables created successfully (if they didn't exist).")
             except Exception as e:
                 print(f"Error creating tables: {str(e)}")
                 conn.rollback()
                 raise e
+
+def tables_exist():
+    with connect_db() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    AND table_name = 'users'
+                ); # Check for the 'users' table as an indicator
+            """)
+            return cursor.fetchone()[0]
 
 def add_product(name, category, quantity, min_stock):
     with connect_db() as conn:

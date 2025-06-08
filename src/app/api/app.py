@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from datetime import datetime
 from flask_cors import CORS
 import functools
-import sqlite3
+# import sqlite3 # No longer needed if using PostgreSQL
 
 # Import from local packages
 from app.database import db
@@ -11,6 +11,11 @@ from app.utils.user_management import user_manager
 def create_app():
     app = Flask(__name__)
     CORS(app)
+
+    # Ensure database tables are created on startup if they don't exist
+    with app.app_context(): # Essential for Flask-SQLAlchemy, good practice even without it
+        if not db.tables_exist():
+            db.create_tables()
 
     def login_required(f):
         @functools.wraps(f)
@@ -217,11 +222,8 @@ def create_app():
     @app.route('/debug/users', methods=['GET'])
     def debug_users():
         try:
-            conn = sqlite3.connect('stock.db')
-            cursor = conn.cursor()
-            cursor.execute('SELECT id, username, role FROM users')
-            users = cursor.fetchall()
-            conn.close()
+            # Use the PostgreSQL connection to fetch users
+            users = db.get_all_users() # Assuming this function exists in db.py
             user_list = []
             for user_id, username, role in users:
                 user_list.append({'id': user_id, 'username': username, 'role': role})
@@ -232,22 +234,19 @@ def create_app():
     @app.route('/users/<int:user_id>', methods=['GET'])
     @login_required
     def get_user_by_id(user_id, user):
-        """Fetches user details by user ID from the SQLite database."""
+        # Only allow admin or the user themselves to view their details
+        if user['role'] != 'admin' and user['id'] != user_id:
+            return jsonify({"error": "Unauthorized"}), 403
+        
         try:
-            conn = sqlite3.connect('stock.db')
-            cursor = conn.cursor()
-            cursor.execute('SELECT id, username, role FROM users WHERE id = ?', (user_id,))
-            user_data = cursor.fetchone()
-            conn.close()
-
+            user_data = db.get_user_by_id(user_id)
             if user_data:
                 return jsonify({
                     'id': user_data[0],
                     'username': user_data[1],
                     'role': user_data[2]
                 })
-            else:
-                return jsonify({'error': 'User not found'}), 404
+            return jsonify({"error": "User not found"}), 404
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
@@ -256,13 +255,15 @@ def create_app():
     def delete_user(user_id, user):
         # Only allow admin to delete users
         if user['role'] != 'admin':
-            return jsonify({'error': 'Unauthorized'}), 403
+            return jsonify({"error": "Unauthorized"}), 403
 
-        conn = sqlite3.connect('stock.db')
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': f'User with ID {user_id} deleted'}), 200
+        try:
+            deleted_count = db.delete_user(user_id)
+            if deleted_count > 0:
+                return jsonify({'success': f'User with ID {user_id} deleted'}), 200
+            else:
+                return jsonify({'error': f'User with ID {user_id} not found'}), 404
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
     return app 
