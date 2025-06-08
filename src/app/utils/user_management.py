@@ -17,6 +17,7 @@ class UserManager:
     def create_user(self, username, password, role='user'):
         """Create a new user using the database module."""
         password_hash = self.hash_password(password)
+        print(f"DEBUG: create_user - Hashed password for {username}: {password_hash}") # Debug print
         return db.add_user_to_db(username, password_hash, role)
 
     def verify_user(self, username, password):

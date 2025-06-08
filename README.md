@@ -31,7 +31,7 @@ A simple inventory management application built with Python and Tkinter.
 ## Usage
 Run the Tkinter client application. It will connect to the Flask API deployed on Render:
 ```sh
-python src/app/main.py
+python run.py
 ```
 
 Alternatively, if you have built the executable, run `run.exe` from the `dist` folder.
