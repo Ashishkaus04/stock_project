@@ -102,6 +102,7 @@ class LoginWindow:
                 data = response.json()
                 self.user_data = data['user']
                 self.auth_token = data['token']
+                print(f"DEBUG: Login Successful. Auth Token: {self.auth_token[:10]}...") # Log partial token
                 self.login_successful = True
                 self.root.destroy()
             else:
