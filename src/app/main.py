@@ -112,6 +112,9 @@ class LoginWindow:
                 print(f"DEBUG: Login Successful. Auth Token: {self.auth_token[:10]}...") # Log partial token
                 self.login_successful = True
                 self.root.destroy()
+
+                # Run migration script after successful login
+                subprocess.run(["python", "migrate_to_sqlite.py"], check=True)
             else:
                 messagebox.showerror("Login Failed", "Invalid username or password")
                 
