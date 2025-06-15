@@ -10,6 +10,8 @@ import hashlib
 from flask import Flask
 from app.api.app import create_app
 from waitress import serve
+import subprocess
+import sys
 
 # Import from local packages
 from .ui import ui
@@ -91,18 +93,42 @@ class LoginWindow:
         return self.login_successful, self.user_data
 
 def main():
+    # Ensure the main database connection is closed at the very beginning
+    # This helps in scenarios where the database file might have been replaced (e.g., by migrate_data.py)
+    db.close_main_db_connection()
+
+    # Get the path to the local database file
+    db_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database', 'inventory.db')
+
     # Ensure database tables are created
     db.create_tables()
 
-    # Debug: Print all quantity history records
-    db.debug_get_all_history()
-
-    # Ensure admin user exists (using db.add_user with bcrypt)
-    if not db.get_user_by_username("admin"):
+    # Check if the database file exists
+    if not os.path.exists(db_file_path):
+        print(f"Database file {db_file_path} not found. Creating new tables and admin user.")
+        db.create_tables() # This also re-establishes connection
         db.add_user("admin", "admin123", role="admin")
         print("Admin user 'admin' created successfully.")
+        db.debug_get_all_users() # Debug: show users after creation
     else:
-        print("Admin user 'admin' already exists.")
+        # Database file exists, now check for admin user
+        print(f"Database file {db_file_path} found. Ensuring tables and checking for admin user.")
+        # Ensure tables are created/verified, and connection is fresh
+        db.create_tables() # This also re-establishes connection
+        admin_user = db.get_user_by_username("admin")
+        if not admin_user:
+            print("Admin user not found in existing database. Recreating users table and adding admin user.")
+            db.recreate_users_table()
+            db.add_user("admin", "admin123", role="admin")
+            print("Admin user 'admin' created successfully in existing database.")
+            db.debug_get_all_users() # Debug: show users after recreation
+        else:
+            print("Admin user 'admin' already exists.")
+            db.debug_get_all_users() # Debug: show users if admin already exists
+
+    # Debug: Show users right before login attempt
+    print("DEBUG: Users in DB right before login attempt:")
+    db.debug_get_all_users()
 
     # Show login window
     login_window = LoginWindow()
@@ -110,10 +136,6 @@ def main():
     
     if not login_successful:
         return  # Exit if login failed
-    
-    # Debug: Remove after verifying fix
-    print(f"DEBUG: User data after login: {user_data}")
-    print(f"DEBUG: User ID after login: {user_data.get('id')}")
 
     # Create main application window
     root = tk.Tk()
@@ -140,8 +162,52 @@ def main():
     ttk.Button(right_buttons_frame, text="Logout", command=logout, style='TButton').pack(side="top", pady=(0, 2)) # Small pady below logout
     ttk.Button(right_buttons_frame, text="Refresh", command=lambda: ui.populate_tree(tree), style='TButton').pack(side="top", pady=(2, 0)) # Small pady above refresh
 
-    # --- Function Definitions (moved here to ensure user_data is available) ---
+    # Initialize progress bar and label (hidden initially)
+    progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="indeterminate")
+    progress_label = ttk.Label(root, text="", font=DEFAULT_FONT)
 
+    # Functions to show/hide progress bar
+    def show_progress(message="Processing...", mode="indeterminate"):
+        print(f"DEBUG: show_progress called with message='{message}', mode='{mode}'")
+        progress_label.config(text=message)
+        progress_label.pack(pady=5)
+        progress_bar.config(mode=mode) # Set the mode
+        progress_bar.start()
+        progress_bar.pack(pady=5)
+
+    def hide_progress(final_message=""):
+        progress_bar.stop()
+        progress_bar.pack_forget()
+        progress_label.config(text=final_message)
+        # Optionally hide the label if no final message is desired
+        # progress_label.pack_forget()
+
+    def update_progress(percentage, message):
+        progress_bar['value'] = percentage
+        progress_label.config(text=f"{message} ({percentage}%)")
+        root.update_idletasks() # Ensure UI updates immediately
+
+    # --- Menu Bar ---
+    menubar = tk.Menu(root)
+    root.config(menu=menubar)
+
+    # Admin Menu
+    admin_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Admin", menu=admin_menu)
+
+    # Stock Menu
+    stock_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Stock", menu=stock_menu)
+
+    # Export Menu
+    export_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Export", menu=export_menu)
+
+    # Data Menu
+    data_menu = tk.Menu(menubar, tearoff=0)
+    menubar.add_cascade(label="Data", menu=data_menu)
+
+    # --- Function Definitions ---
     def export_selected_to_csv():
         selected = tree.selection()
         if not selected:
@@ -163,7 +229,7 @@ def main():
         ttk.Label(prompt, text="End Date:").grid(row=1, column=0, padx=5, pady=5)
         end_date_entry = DateEntry(prompt, width=12, background='darkblue', foreground='white', borderwidth=2)
         end_date_entry.grid(row=1, column=1, padx=5, pady=5)
-        
+
         # Function to handle what happens after OK is clicked on date prompt
         def on_date_range_ok():
             start_date_obj = start_date_entry.get_date()
@@ -242,39 +308,171 @@ def main():
     def show_update_quantity_window():
         selected_item = tree.selection()
         if selected_item:
-            item = tree.item(selected[0])['values']
+            item = tree.item(selected_item[0])['values']
             item_id = item[0]
             item_name = item[1]
-            ui.show_update_quantity_window(root, item_id, item_name, current_user_id=int(user_data['id'])) # Pass user_id
+            ui.show_update_quantity_window(root, item_id, item_name, current_user_id=int(user_data['id']))
 
-    # --- Menu Bar ---
-    menubar = tk.Menu(root)
-    root.config(menu=menubar)
+    def show_out_of_stock_window():
+        ui.show_out_of_stock(root, tree)
 
-    # Admin Menu
-    admin_menu = tk.Menu(menubar, tearoff=0)
-    menubar.add_cascade(label="Admin", menu=admin_menu)
+    def show_in_stock_window():
+        ui.show_in_stock(root, tree)
 
+    def show_add_user_window():
+        ui.show_add_user_window(root)
+
+    def show_delete_user_window():
+        ui.show_delete_user_window(root)
+
+    def show_all_users_window():
+        ui.show_all_users_window(root)
+
+    def show_change_password_window():
+        ui.show_change_password_window(root, int(user_data['id']))
+
+    def download_to_local():
+        if messagebox.askyesno("Confirm Download", "This will replace your local data with data from the cloud database. Are you sure you want to proceed?"):
+            # Close the main application's database connection before starting the background thread
+            db.close_main_db_connection()
+
+            def run_download():
+                try:
+                    # Delete the existing local database file if it exists
+                    db_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database', 'inventory.db')
+                    if os.path.exists(db_file_path):
+                        os.remove(db_file_path)
+                        print(f"Local database {db_file_path} deleted successfully.")
+
+                    # Define the PostgreSQL DATABASE_URL
+                    postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
+                    
+                    # Run the migration script as a subprocess, capturing output
+                    env = os.environ.copy()
+                    env['DATABASE_URL'] = postgresql_db_url
+                    process = subprocess.Popen([sys.executable, "src/app/database/migrate_data.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+                    
+                    for line in process.stdout:
+                        print(line.strip()) # Print to console as well
+                        if line.startswith("PROGRESS:"):
+                            try:
+                                percentage = int(line.strip().split(":")[1])
+                                root.after(0, lambda: update_progress(percentage, "Downloading data..."))
+                            except (ValueError, IndexError):
+                                pass # Ignore malformed progress lines
+
+                    process.wait()
+
+                    if process.returncode != 0:
+                        raise subprocess.CalledProcessError(process.returncode, process.args)
+                    
+                    # Re-establish the main database connection and refresh UI on the main thread after successful download
+                    def refresh_and_show_success():
+                        db.get_main_db_connection() 
+                        db.reset_auto_increment_sequence('products') # Reset products sequence
+                        ui.populate_tree(tree)
+                        hide_progress("Download Complete!")
+                        messagebox.showinfo("Download Complete", "Data successfully downloaded from cloud to local!")
+                    root.after(0, refresh_and_show_success)
+                except FileNotFoundError as e:
+                    def show_file_error(error):
+                        hide_progress("Download Failed.")
+                        messagebox.showerror("Error", f"Local database file not found at {db_file_path}. Please ensure the path is correct.")
+                    root.after(0, lambda error=e: show_file_error(error))
+                except subprocess.CalledProcessError as e:
+                    def show_process_error(error):
+                        hide_progress("Download Failed.")
+                        messagebox.showerror("Error", f"Failed to download data. Migration script exited with error: {error}")
+                    root.after(0, lambda error=e: show_process_error(error))
+                except Exception as e:
+                    def show_general_error(error):
+                        hide_progress("Download Failed.")
+                        messagebox.showerror("Error", f"An unexpected error occurred during download: {error}")
+                    root.after(0, lambda error=e: show_general_error(error))
+                finally:
+                    def cleanup():
+                        hide_progress("") # Ensure progress bar is hidden eventually
+                    root.after(0, cleanup)
+
+            # Start the download process in a background thread
+            print("DEBUG: Calling show_progress for download.")
+            show_progress("Downloading data...", mode="determinate")
+            threading.Thread(target=run_download, daemon=True).start()
+
+    def upload_to_cloud():
+        if messagebox.askyesno("Confirm Upload", "This will replace your cloud data with data from your local database. Are you sure you want to proceed?"):
+            # Close the main application's database connection before starting the background thread
+            db.close_main_db_connection()
+
+            def run_upload():
+                try:
+                    # Define the PostgreSQL DATABASE_URL
+                    postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
+                    
+                    # Run the upload script as a subprocess, capturing output
+                    env = os.environ.copy()
+                    env['DATABASE_URL'] = postgresql_db_url
+                    process = subprocess.Popen([sys.executable, "src/app/database/upload_to_cloud.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+
+                    for line in process.stdout:
+                        print(line.strip()) # Print to console as well
+                        if line.startswith("PROGRESS:"):
+                            try:
+                                percentage = int(line.strip().split(":")[1])
+                                root.after(0, lambda: update_progress(percentage, "Uploading data..."))
+                            except (ValueError, IndexError):
+                                pass # Ignore malformed progress lines
+
+                    process.wait()
+
+                    if process.returncode != 0:
+                        raise subprocess.CalledProcessError(process.returncode, process.args)
+                    
+                    # Re-establish the main database connection and refresh UI on the main thread after successful upload
+                    def refresh_and_show_success():
+                        db.get_main_db_connection() 
+                        ui.populate_tree(tree)
+                        hide_progress("Upload Complete!")
+                        messagebox.showinfo("Upload Complete", "Data successfully uploaded from local to cloud!")
+                    root.after(0, refresh_and_show_success)
+                except subprocess.CalledProcessError as e:
+                    def show_process_error(error):
+                        hide_progress("Upload Failed.")
+                        messagebox.showerror("Error", f"Failed to upload data. Upload script exited with error: {error}")
+                    root.after(0, lambda error=e: show_process_error(error))
+                except Exception as e:
+                    def show_general_error(error):
+                        hide_progress("Upload Failed.")
+                        messagebox.showerror("Error", f"An unexpected error occurred during upload: {error}")
+                    root.after(0, lambda error=e: show_general_error(error))
+                finally:
+                    def cleanup():
+                        hide_progress("")
+                    root.after(0, cleanup)
+            
+            # Start the upload process in a background thread
+            print("DEBUG: Calling show_progress for upload.")
+            show_progress("Uploading data...", mode="determinate")
+            threading.Thread(target=run_upload, daemon=True).start()
+
+    # Add menu commands
     # Only show user management options for admin users
     if user_data['role'] == 'admin':
-        admin_menu.add_command(label="Add User", command=lambda: ui.show_add_user_window(root))
-        admin_menu.add_command(label="Delete User", command=lambda: ui.show_delete_user_window(root))
-        admin_menu.add_command(label="Show Users", command=lambda: ui.show_all_users_window(root))
+        admin_menu.add_command(label="Add User", command=show_add_user_window)
+        admin_menu.add_command(label="Delete User", command=show_delete_user_window)
+        admin_menu.add_command(label="Show Users", command=show_all_users_window)
         admin_menu.add_separator()
 
-    admin_menu.add_command(label="Change Password", command=lambda: ui.show_change_password_window(root, user_data['id']))
+    admin_menu.add_command(label="Change Password", command=show_change_password_window)
 
-    # Stock Menu
-    stock_menu = tk.Menu(menubar, tearoff=0)
-    menubar.add_cascade(label="Stock", menu=stock_menu)
-    stock_menu.add_command(label="In-Stock Products", command=lambda: ui.show_in_stock(root, tree))
-    stock_menu.add_command(label="Out of Stock Products", command=lambda: ui.show_out_of_stock(root, tree))
+    stock_menu.add_command(label="In-Stock Products", command=show_in_stock_window)
+    stock_menu.add_command(label="Out of Stock Products", command=show_out_of_stock_window)
 
-    # Export Menu
-    export_menu = tk.Menu(menubar, tearoff=0)
-    menubar.add_cascade(label="Export", menu=export_menu)
     export_menu.add_command(label="Export to CSV", command=export_selected_to_csv)
     export_menu.add_command(label="Print Stock", command=print_stock)
+
+    data_menu.add_command(label="Download to Local", command=download_to_local)
+    data_menu.add_command(label="Upload to Cloud", command=upload_to_cloud)
 
     # --- Search Frame ---
     search_frame = tk.Frame(root)
@@ -335,7 +533,13 @@ def main():
     tree.bind('<Double-1>', on_item_double_click)
 
     # Start the main loop
+    root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
     root.mainloop()
+
+def on_closing(root):
+    # Close the main database connection when the application closes
+    db.close_main_db_connection()
+    root.destroy()
 
 if __name__ == "__main__":
     main()

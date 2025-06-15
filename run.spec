@@ -6,7 +6,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('src/app', 'app'),
-        ('src/app/database/stock.db', 'app/database'),
+        ('src/app/database/inventory.db', 'app/database'),
+        ('src/app/database/upload_to_cloud.py', 'app/database'),
+        ('src/app/database/migrate_data.py', 'app/database'),
         ('static', 'static'),
         ('C:\\Users\\DELL\\AppData\\Local\\Programs\\Python\\Python313\\tcl', 'tcl')
     ],
@@ -38,7 +40,8 @@ a = Analysis(
         'app.api.app',
         'app.main',
         'app.ui',
-        'app.database'
+        'app.database',
+        'bcrypt'
     ],
     hookspath=[],
     hooksconfig={},

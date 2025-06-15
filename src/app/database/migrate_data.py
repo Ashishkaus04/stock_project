@@ -40,8 +40,15 @@ def create_sqlite_table(sqlite_conn, table_name, columns):
         # Create table with the same structure
         column_defs = []
         for col_name, data_type, is_nullable in columns:
+            sqlite_type = 'TEXT'  # Default to TEXT for unknown types
+            nullable = 'NOT NULL' if is_nullable == 'NO' else ''
+            primary_key = ''
+
             # Convert PostgreSQL data types to SQLite
-            if data_type == 'integer':
+            if col_name == 'id' and data_type == 'integer':
+                sqlite_type = 'INTEGER'
+                primary_key = 'PRIMARY KEY AUTOINCREMENT'
+            elif data_type == 'integer':
                 sqlite_type = 'INTEGER'
             elif data_type == 'text':
                 sqlite_type = 'TEXT'
@@ -49,11 +56,8 @@ def create_sqlite_table(sqlite_conn, table_name, columns):
                 sqlite_type = 'TIMESTAMP'
             elif data_type == 'boolean':
                 sqlite_type = 'INTEGER'  # SQLite uses INTEGER for boolean
-            else:
-                sqlite_type = 'TEXT'  # Default to TEXT for unknown types
             
-            nullable = 'NOT NULL' if is_nullable == 'NO' else ''
-            column_defs.append(f"{col_name} {sqlite_type} {nullable}")
+            column_defs.append(f"{col_name} {sqlite_type} {nullable} {primary_key}".strip())
         
         create_table_sql = f"CREATE TABLE {table_name} ({', '.join(column_defs)})"
         print(f"Creating table {table_name} with SQL: {create_table_sql}")
@@ -61,6 +65,7 @@ def create_sqlite_table(sqlite_conn, table_name, columns):
 
 def migrate_data():
     print("Starting data migration from PostgreSQL to SQLite...")
+    print("PROGRESS:0") # Initial progress
     
     # Connect to both databases
     pg_conn = connect_postgres()
@@ -75,24 +80,25 @@ def migrate_data():
             print(f"Columns in {table}:", columns)
             create_sqlite_table(sqlite_conn, table, columns)
         
-        # Migrate users (Commented out to prevent old password hashes from being migrated)
-        # print("\nMigrating users...")
-        # with pg_conn.cursor() as pg_cursor:
-        #     pg_cursor.execute("SELECT * FROM users")
-        #     users = pg_cursor.fetchall()
-        #     print(f"Found {len(users)} users to migrate")
-        #     
-        #     with sqlite_conn:
-        #         sqlite_cursor = sqlite_conn.cursor()
-        #         for user in users:
-        #             try:
-        #                 placeholders = ','.join(['?' for _ in user])
-        #                 sqlite_cursor.execute(
-        #                     f"INSERT INTO users VALUES ({placeholders})",
-        #                     user
-        #                 )
-        #             except sqlite3.IntegrityError as e:
-        #                 print(f"Error inserting user: {str(e)}")
+        # Migrate users
+        print("\nMigrating users...")
+        with pg_conn.cursor() as pg_cursor:
+            pg_cursor.execute("SELECT * FROM users")
+            users = pg_cursor.fetchall()
+            print(f"Found {len(users)} users to migrate")
+            
+            with sqlite_conn:
+                sqlite_cursor = sqlite_conn.cursor()
+                for user in users:
+                    try:
+                        placeholders = ','.join(['?' for _ in user])
+                        sqlite_cursor.execute(
+                            f"INSERT INTO users VALUES ({placeholders})",
+                            user
+                        )
+                    except sqlite3.IntegrityError as e:
+                        print(f"Error inserting user: {str(e)}")
+        print("PROGRESS:25") # Progress after users table
         
         # Migrate products
         print("\nMigrating products...")
@@ -112,6 +118,7 @@ def migrate_data():
                         )
                     except sqlite3.IntegrityError as e:
                         print(f"Error inserting product: {str(e)}")
+        print("PROGRESS:50") # Progress after products table
         
         # Migrate quantity history
         print("\nMigrating quantity history...")
@@ -131,6 +138,7 @@ def migrate_data():
                         )
                     except sqlite3.IntegrityError as e:
                         print(f"Error inserting history record: {str(e)}")
+        print("PROGRESS:75") # Progress after quantity_history table
         
         # Migrate sessions
         print("\nMigrating sessions...")
@@ -150,6 +158,7 @@ def migrate_data():
                         )
                     except sqlite3.IntegrityError as e:
                         print(f"Error inserting session: {str(e)}")
+        print("PROGRESS:100") # Progress after sessions table
         
         print("\nData migration completed successfully!")
         
