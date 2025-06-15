@@ -1,881 +1,518 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import requests
 from datetime import datetime
 
 # Import from local packages
 from ..database import db
 
-# Define the base URL for your Flask API (placeholder - replace with your Render service URL)
-API_BASE_URL = "https://stock-project-nnei.onrender.com" # Replace with your Render service URL later
-
-def populate_tree(tree, search_term=None, auth_token=None, item_user_map=None):
+def populate_tree(tree, search_term=None):
     """Populates the treeview with products, optionally filtered by search_term."""
     # Clear existing items
     for row in tree.get_children():
         tree.delete(row)
-    
-    # Clear the user map if provided
-    if item_user_map is not None:
-        item_user_map.clear()
 
     try:
-        # Construct the API URL, adding search query parameter if search_term is provided
-        url = f"{API_BASE_URL}/products"
-        if search_term:
-            url += f"?search={requests.utils.quote(search_term)}"
-
-        # Add authorization header
-        headers = {}
-        if auth_token:
-            headers["Authorization"] = f"Bearer {auth_token}"
-
-        # Make GET request to the API
-        response = requests.get(url, headers=headers)
-        response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
-        products = response.json()
-        
+        # Directly use database function to get products
+        products = db.get_all_products(search_term)
         for product in products:
-            # The API returns product details as a dictionary, including last_changed_by_user_id
-            item_id = product['id']
-            name = product['name']
-            category = product['category']
-            quantity = product['quantity']
-            min_stock = product['min_stock']
-            last_changed_by_user_id = product.get('last_changed_by_user_id') # Get the user ID
-            
-            # Format the row to show N/A for None values
-            formatted_row = [
-                str(item_id) if item_id is not None else "N/A",
-                name if name is not None else "N/A",
-                category if category is not None else "N/A",
-                str(quantity) if quantity is not None else "N/A",
-                str(min_stock) if min_stock is not None else "N/A"
-            ]
-            
-            item_iid = tree.insert("", "end", values=formatted_row)
-            
-            # Store the user ID with the treeview item ID in the map if the map is provided
-            if item_user_map is not None and last_changed_by_user_id is not None:
-                item_user_map[item_iid] = last_changed_by_user_id
+            product_id, name, category, quantity, min_stock, last_changed_by_user_id = product
+            tags = () # Initialize tags as an empty tuple
+            if quantity <= min_stock:
+                tags = ('low_stock',)
+            tree.insert("", "end", values=product, tags=tags)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to fetch products: {e}")
 
-            # If quantity is below min_stock, tag the item
-            # Ensure quantity and min_stock are treated as numbers for comparison
-            try:
-                quantity_num = int(quantity) if quantity != "N/A" else 0
-                min_stock_num = int(min_stock) if min_stock != "N/A" else 0
-                if quantity_num < min_stock_num:
-                    tree.item(item_iid, tags=('low_stock',))
-            except ValueError:
-                 # Handle cases where quantity or min_stock might not be valid numbers
-                 pass
-
-    except requests.exceptions.RequestException as e:
-        messagebox.showerror("API Error", f"Failed to fetch products: {e}")
+def show_in_stock(root, main_tree=None):
+    # Directly use database function to get in-stock products
+    products = db.get_all_products()
+    in_stock = [p for p in products if p[3] > 0]
     
-    # No explicit return needed as item_user_map is modified in place
-
-def add_product_window(root, tree=None, auth_token=None):
+    # Show in-stock products in a new window
     win = tk.Toplevel(root)
-    win.title("Add Product")
-
-    fields = ["Name", "Category", "Quantity", "Min Stock"]
-    entries = {}
-
-    for i, field in enumerate(fields):
-        tk.Label(win, text=field).grid(row=i, column=0, padx=5, pady=5)
-        entry = tk.Entry(win)
-        entry.grid(row=i, column=1, padx=5, pady=5)
-        entries[field.lower().replace(" ", "_")] = entry
-
-    def save():
-        try:
-            data = {k: v.get() for k, v in entries.items()}
-            
-            # Prepare data for API request
-            product_data = {
-                "name": data.get("name"),
-                "category": data.get("category"),
-                "quantity": int(data.get("quantity", 0)),
-                "min_stock": int(data.get("min_stock", 0))
-            }
-
-            # Add authorization header
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
-
-            # Make POST request to the API to add product
-            response = requests.post(f"{API_BASE_URL}/product", json=product_data, headers=headers)
-            response.raise_for_status() # Raise an exception for bad status codes
-            
-            # Handle success response
-            messagebox.showinfo("Success", "Product added successfully!")
-            win.destroy()
-            if tree:
-                populate_tree(tree, auth_token=auth_token)
-
-        except ValueError:
-             messagebox.showerror("Error", "Please enter valid numbers for Quantity and Min Stock.")
-        except requests.exceptions.RequestException as e:
-            # Attempt to parse API error message if available
-            error_message = str(e)
-            if response and response.content:
-                try:
-                    api_error = response.json()
-                    if 'error' in api_error:
-                        error_message = api_error['error']
-                except:
-                    pass # Ignore if JSON parsing fails
-            messagebox.showerror("API Error", f"Failed to add product: {error_message}")
-
-    tk.Button(win, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=10)
-
-def show_in_stock(root, main_tree=None, auth_token=None):
-    win = tk.Toplevel(root)
-    win.title("In-Stock Items")
-
-    columns = ("ID", "Name", "Quantity")
-    tree = ttk.Treeview(win, columns=columns, show="headings")
-    for col in columns:
-        tree.heading(col, text=col)
-        tree.column(col, width=120)
-    tree.pack(fill="both", expand=True, padx=10, pady=10)
-
-    # Configure the tag for low stock items
-    tree.tag_configure('low_stock', foreground='red')
-
-    def populate_in_stock():
-        for row in tree.get_children():
-            tree.delete(row)
-        try:
-            # Add authorization header
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
-
-            response = requests.get(f"{API_BASE_URL}/products", headers=headers)
-            response.raise_for_status()
-            products = response.json()
-
-            for product in products:
-                item_id = product['id']
-                name = product['name']
-                quantity = product['quantity']
-                min_stock = product['min_stock']
-
-                item = tree.insert("", "end", values=(item_id, name, quantity))
-                if min_stock is not None and quantity < min_stock:
-                    tree.item(item, tags=('low_stock',))
-
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("API Error", f"Failed to fetch products: {e}")
-
-    def add_new_item():
-        add_product_window(win, tree=tree, auth_token=auth_token)
-
-    def update_quantity():
-        selected = tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select an item to update")
-            return
-            
-        item = tree.item(selected[0])['values']
-        item_id = int(item[0]) # Ensure item_id is integer
-        item_name = item[1]
-        current_qty = int(item[2]) # Ensure current_qty is integer
-
-        # Get all product details from API (to get min_stock for preview)
-        try:
-            # Add authorization header
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
-
-            response = requests.get(f"{API_BASE_URL}/product/{item_id}", headers=headers)
-            response.raise_for_status()
-            product_details = response.json()
-            min_stock = product_details.get('min_stock', 0)
-            current_qty_from_api = product_details.get('quantity', 0)
-
-            # Use the quantity from API in case the local tree view is outdated
-            current_qty = current_qty_from_api
-
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("API Error", f"Failed to fetch product details for update: {e}")
-            return
-
-        update_win = tk.Toplevel(win)
-        update_win.title(f"Update Product - {item_name}")
-        update_win.geometry("400x500")  # Increased height for new fields
-        update_win.resizable(False, False)
-
-        # Center the window
-        update_win.transient(win)
-        update_win.grab_set()
-
-        # Create a frame for better organization
-        frame = tk.Frame(update_win, padx=20, pady=20)
-        frame.pack(fill="both", expand=True)
-
-        # Product details section
-        details_frame = tk.LabelFrame(frame, text="Product Details", padx=10, pady=10)
-        details_frame.pack(fill="x", pady=(0, 15))
-
-        # Name
-        name_frame = tk.Frame(details_frame)
-        name_frame.pack(fill="x", pady=2)
-        tk.Label(name_frame, text="Name:", width=10, anchor="w").pack(side="left")
-        tk.Label(name_frame, text=product_details.get('name', 'N/A'), font=("Arial", 9, "bold")).pack(side="left")
-
-        # Category
-        cat_frame = tk.Frame(details_frame)
-        cat_frame.pack(fill="x", pady=2)
-        tk.Label(cat_frame, text="Category:", width=10, anchor="w").pack(side="left")
-        tk.Label(cat_frame, text=product_details.get('category', 'N/A')).pack(side="left")
-
-        # Min Stock
-        min_frame = tk.Frame(details_frame)
-        min_frame.pack(fill="x", pady=2)
-        tk.Label(min_frame, text="Min Stock:", width=10, anchor="w").pack(side="left")
-        tk.Label(min_frame, text=product_details.get('min_stock', 'N/A')).pack(side="left")
-
-        # Current Quantity
-        curr_frame = tk.Frame(details_frame)
-        curr_frame.pack(fill="x", pady=2)
-        tk.Label(curr_frame, text="Current Qty:", width=10, anchor="w").pack(side="left")
-        tk.Label(curr_frame, text=str(current_qty), font=("Arial", 9, "bold")).pack(side="left")
-
-        # Quantity update section
-        update_frame = tk.LabelFrame(frame, text="Update Quantity", padx=10, pady=10)
-        update_frame.pack(fill="x", pady=(0, 15))
-
-        qty_frame = tk.Frame(update_frame)
-        qty_frame.pack(fill="x", pady=5)
-
-        tk.Label(qty_frame, text="Quantity to Add:").pack(side="left", padx=(0, 5))
-        qty_entry = tk.Entry(qty_frame, width=10)
-        qty_entry.insert(0, "0")
-        qty_entry.pack(side="left")
-        qty_entry.focus_set()
-        qty_entry.select_range(0, tk.END)
-
-        # Seller Information section
-        seller_frame = tk.LabelFrame(frame, text="Seller Information", padx=10, pady=10)
-        seller_frame.pack(fill="x", pady=(0, 15))
-
-        # Seller Name
-        seller_name_frame = tk.Frame(seller_frame)
-        seller_name_frame.pack(fill="x", pady=2)
-        tk.Label(seller_name_frame, text="Name:", width=10, anchor="w").pack(side="left")
-        seller_name_entry = tk.Entry(seller_name_frame)
-        seller_name_entry.pack(side="left", fill="x", expand=True)
-
-        # Invoice Number
-        invoice_frame = tk.Frame(seller_frame)
-        invoice_frame.pack(fill="x", pady=2)
-        tk.Label(invoice_frame, text="Invoice:", width=10, anchor="w").pack(side="left")
-        invoice_entry = tk.Entry(invoice_frame)
-        invoice_entry.pack(side="left", fill="x", expand=True)
-
-        # Preview section
-        preview_frame = tk.LabelFrame(frame, text="Preview", padx=10, pady=10)
-        preview_frame.pack(fill="x", pady=(0, 15))
-
-        preview_label = tk.Label(preview_frame, text=f"New Total: {current_qty}")
-        preview_label.pack(pady=5)
-
-        def update_preview(*args):
-            try:
-                add_qty = int(qty_entry.get())
-                new_total = current_qty + add_qty
-                preview_label.config(text=f"New Total: {new_total}")
-
-                # Add warning if below min stock
-                try:
-                    min_stock_num = int(min_stock) if min_stock != "N/A" else 0
-                    if new_total < min_stock_num:
-                         preview_label.config(fg="red")
-                    else:
-                         preview_label.config(fg="black")
-                except ValueError:
-                    pass # Ignore if min_stock is not a valid number
-            except ValueError:
-                preview_label.config(text="New Total: Invalid", fg="red")
-
-        # Bind the entry to update preview
-        qty_entry.bind('<KeyRelease>', update_preview)
-
-        def validate_and_save():
-            try:
-                add_qty = int(qty_entry.get())
-                new_qty = current_qty + add_qty
-                if new_qty < 0:
-                    messagebox.showerror("Error", "Final quantity cannot be negative")
-                    return
-
-                # Get seller information
-                seller_name = seller_name_entry.get().strip()
-                invoice_number = invoice_entry.get().strip()
-
-                # Prepare data for API request
-                update_data = {
-                    "new_quantity": new_qty,
-                    "seller_name": seller_name if seller_name else None,
-                    "invoice_number": invoice_number if invoice_number else None
-                }
-
-                # Add authorization header
-                headers = {}
-                if auth_token:
-                    headers["Authorization"] = f"Bearer {auth_token}"
-
-                # Make PUT request to the API to update quantity
-                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data, headers=headers)
-                response.raise_for_status() # Raise an exception for bad status codes
-
-                # Handle success response
-                messagebox.showinfo("Success", f"Quantity updated to {new_qty}")
-                update_win.destroy()
-
-                # Refresh the treeview after update
-                if main_tree:
-                    populate_tree(main_tree, auth_token=auth_token)
-
-            except ValueError:
-                messagebox.showerror("Error", "Please enter a valid number")
-            except requests.exceptions.RequestException as e:
-                 # Attempt to parse API error message if available
-                error_message = str(e)
-                if response and response.content:
-                    try:
-                        api_error = response.json()
-                        if 'error' in api_error:
-                            error_message = api_error['error']
-                    except:
-                        pass # Ignore if JSON parsing fails
-                messagebox.showerror("API Error", f"Failed to update quantity: {error_message}")
-
-        # Bind Enter key to save
-        update_win.bind('<Return>', lambda event=None: validate_and_save())
-
-        # Button frame
-        btn_frame = tk.Frame(frame)
-        btn_frame.pack(pady=(10, 0))
-
-        tk.Button(btn_frame, text="Save", command=validate_and_save, width=10).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="Cancel", command=update_win.destroy, width=10).pack(side="left", padx=5)
-
-    btn_frame = tk.Frame(win)
-    btn_frame.pack(pady=5)
-
-    tk.Button(btn_frame, text="Add Item", command=add_new_item).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Update Quantity", command=update_quantity).pack(side="left", padx=5)
-
-    populate_in_stock()
-
-def show_out_of_stock(root, main_tree=None, auth_token=None):
-    win = tk.Toplevel(root)
-    win.title("Out of Stock Management")
+    win.title("In-Stock Products")
     win.geometry("600x400")
-
-    columns = ("ID", "Name", "Category", "Quantity", "Min Stock")
-    tree = ttk.Treeview(win, columns=columns, show="headings")
-    for col in columns:
+    
+    tree = ttk.Treeview(win, columns=("ID", "Name", "Category", "Quantity", "Min Stock"), show="headings")
+    for col in tree["columns"]:
         tree.heading(col, text=col)
         tree.column(col, width=100)
-    tree.pack(fill="both", expand=True, padx=10, pady=10)
+    tree.pack(fill="both", expand=True)
+    
+    for product in in_stock:
+        tree.insert("", "end", values=product)
 
-    # Configure the tag for low stock items
-    tree.tag_configure('low_stock', foreground='red')
+    # Add buttons for Add Item and Update Quantity
+    btn_frame = ttk.Frame(win, padding="10")
+    btn_frame.pack(fill="x", pady=(5, 0))
 
-    def populate_out_of_stock():
-        # This view should only show items that are out of stock (quantity <= 0)
+    def refresh_in_stock_tree():
         for row in tree.get_children():
             tree.delete(row)
+        products = db.get_all_products()
+        in_stock = [p for p in products if p[3] > 0]
+        for product in in_stock:
+            tree.insert("", "end", values=product)
+        if main_tree: # Also refresh the main window tree if available
+            populate_tree(main_tree)
 
-        try:
-            # Add authorization header
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
+    ttk.Button(btn_frame, text="Add Item", command=lambda: add_product_window(win, refresh_in_stock_tree)).pack(side="left", padx=5)
+    ttk.Button(btn_frame, text="Update Quantity", command=lambda: on_update_quantity_clicked(win, tree, refresh_in_stock_tree)).pack(side="left", padx=5)
 
-            # Fetch ALL products from API and filter locally
-            # Alternatively, could add an API endpoint for out of stock items
-            response = requests.get(f"{API_BASE_URL}/products", headers=headers)
-            response.raise_for_status()
-            products = response.json()
-
-            # out_of_stock_products = [p for p in products if p.get('quantity', 0) <= 0]
-            all_products = products
-
-            for product in all_products:
-                item_id = product['id']
-                name = product['name']
-                category = product['category']
-                quantity = product['quantity']
-                min_stock = product['min_stock']
-
-                # Format the row to show N/A for None values
-                formatted_row = [
-                    str(item_id) if item_id is not None else "N/A",
-                    name if name is not None else "N/A",
-                    category if category is not None else "N/A",
-                    str(quantity) if quantity is not None else "N/A",
-                    str(min_stock) if min_stock is not None else "N/A"
-                ]
-
-                item = tree.insert("", "end", values=formatted_row)
-
-                # If quantity is below min_stock, tag the item (should all be low stock if out of stock)
-                try:
-                     quantity_num = int(quantity) if quantity != "N/A" else 0
-                     min_stock_num = int(min_stock) if min_stock != "N/A" else 0
-                     if quantity_num < min_stock_num:
-                         tree.item(item, tags=('low_stock',))
-                except ValueError:
-                    pass # Ignore if quantity or min_stock is not a valid number
-
-        except requests.exceptions.RequestException as e:
-             messagebox.showerror("API Error", f"Failed to fetch products for out of stock view: {e}")
-
-    def remove_stock():
-        selected = tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select an item to remove stock")
+    def on_update_quantity_clicked(root_window, current_tree, refresh_callback):
+        selected_item = current_tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Selection Error", "Please select a product to update quantity.")
             return
-            
-        item = tree.item(selected[0])['values']
-        item_id = int(item[0]) # Ensure item_id is integer
-        item_name = item[1]
-        current_qty = int(item[3]) # Ensure current_qty is integer
-
-        # Get all product details from API (to get current qty for preview)
-        try:
-            # Add authorization header
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
-
-            response = requests.get(f"{API_BASE_URL}/product/{item_id}", headers=headers)
-            response.raise_for_status()
-            product_details = response.json()
-            current_qty_from_api = product_details.get('quantity', 0)
-
-            # Use the quantity from API in case the local tree view is outdated
-            current_qty = current_qty_from_api
-
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("API Error", f"Failed to fetch product details for removal: {e}")
-            return
-
-        remove_win = tk.Toplevel(win)
-        remove_win.title(f"Remove Stock - {item_name}")
-        remove_win.geometry("400x500")  # Increased height for buyer information
-        remove_win.resizable(False, False)
-
-        # Center the window
-        remove_win.transient(win)
-        remove_win.grab_set()
-
-        frame = tk.Frame(remove_win, padx=20, pady=20)
-        frame.pack(fill="both", expand=True)
-
-        # Current stock info
-        info_frame = tk.LabelFrame(frame, text="Current Stock", padx=10, pady=10)
-        info_frame.pack(fill="x", pady=(0, 15))
-
-        tk.Label(info_frame, text=f"Current Quantity: {current_qty}").pack(pady=5)
-
-        # Quantity to remove
-        qty_frame = tk.Frame(frame)
-        qty_frame.pack(fill="x", pady=5)
         
-        tk.Label(qty_frame, text="Quantity to Remove:").pack(side="left", padx=(0, 5))
-        qty_entry = tk.Entry(qty_frame, width=10)
-        qty_entry.insert(0, "0")
-        qty_entry.pack(side="left")
-        qty_entry.focus_set()
-        qty_entry.select_range(0, tk.END)
-
-        # Buyer Information section
-        buyer_frame = tk.LabelFrame(frame, text="Buyer Information", padx=10, pady=10)
-        buyer_frame.pack(fill="x", pady=(0, 15))
-
-        # Buyer Name
-        buyer_name_frame = tk.Frame(buyer_frame)
-        buyer_name_frame.pack(fill="x", pady=2)
-        tk.Label(buyer_name_frame, text="Name:", width=10, anchor="w").pack(side="left")
-        buyer_name_entry = tk.Entry(buyer_name_frame)
-        buyer_name_entry.pack(side="left", fill="x", expand=True)
-
-        # Invoice Number
-        invoice_frame = tk.Frame(buyer_frame)
-        invoice_frame.pack(fill="x", pady=2)
-        tk.Label(invoice_frame, text="Invoice:", width=10, anchor="w").pack(side="left")
-        invoice_entry = tk.Entry(invoice_frame)
-        invoice_entry.pack(side="left", fill="x", expand=True)
-
-        # Preview
-        preview_label = tk.Label(frame, text=f"Remaining: {current_qty}")
-        preview_label.pack(pady=10)
-
-        def update_preview(*args):
-            try:
-                remove_qty = int(qty_entry.get())
-                remaining = current_qty - remove_qty
-                preview_label.config(text=f"Remaining: {remaining}")
-                if remaining < 0:
-                    preview_label.config(fg="red")
-                else:
-                    preview_label.config(fg="black")
-            except ValueError:
-                preview_label.config(text="Remaining: Invalid", fg="red")
-
-        qty_entry.bind('<KeyRelease>', update_preview)
-
-        def save_removal():
-            try:
-                remove_qty = int(qty_entry.get())
-                if remove_qty < 0:
-                    messagebox.showerror("Error", "Cannot remove negative quantity")
-                    return
-                    
-                new_qty = current_qty - remove_qty
-                if new_qty < 0:
-                    messagebox.showerror("Error", "Cannot remove more than available stock")
-                    return
-
-                # Get buyer information
-                buyer_name = buyer_name_entry.get().strip()
-                invoice_number = invoice_entry.get().strip()
-
-                # Prepare data for API request (new quantity will be current - removed)
-                update_data = {
-                    "new_quantity": new_qty,
-                    "seller_name": buyer_name if buyer_name else None, # Using seller_name field for buyer
-                    "invoice_number": invoice_number if invoice_number else None
-                }
-
-                # Add authorization header
-                headers = {}
-                if auth_token:
-                    headers["Authorization"] = f"Bearer {auth_token}"
-
-                # Make PUT request to the API to update quantity
-                response = requests.put(f"{API_BASE_URL}/product/{item_id}/quantity", json=update_data, headers=headers)
-                response.raise_for_status() # Raise an exception for bad status codes
-
-                messagebox.showinfo("Success", f"Removed {remove_qty} items. New quantity: {new_qty}")
-                remove_win.destroy()
-                
-                # Refresh the treeview after removal
-                if main_tree:
-                    populate_tree(main_tree, auth_token=auth_token)
-
-            except ValueError:
-                messagebox.showerror("Error", "Please enter a valid number")
-            except requests.exceptions.RequestException as e:
-                # Attempt to parse API error message if available
-                error_message = str(e)
-                if response and response.content:
-                    try:
-                        api_error = response.json()
-                        if 'error' in api_error:
-                            error_message = api_error['error']
-                    except:
-                        pass # Ignore if JSON parsing fails
-                messagebox.showerror("API Error", f"Failed to remove stock: {error_message}")
-
-        def on_enter(event):
-            save_removal()
-
-        qty_entry.bind('<Return>', on_enter)
-
-        # Buttons
-        btn_frame = tk.Frame(frame)
-        btn_frame.pack(pady=(10, 0))
+        item_values = current_tree.item(selected_item[0])['values']
+        product_id = item_values[0]
+        current_quantity = item_values[3]
         
-        tk.Button(btn_frame, text="Remove", command=save_removal, width=10).pack(side="left", padx=5)
-        tk.Button(btn_frame, text="Cancel", command=remove_win.destroy, width=10).pack(side="left", padx=5)
+        # In a real application, you would pass the current user's ID here
+        # For now, we'll pass None or a placeholder
+        current_user_id = 1  # Placeholder, replace with actual logged-in user ID
 
-    def delete_item():
-        selected = tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select an item to delete")
+        update_quantity_window(root_window, product_id, current_quantity, refresh_callback, current_user_id)
+
+def show_out_of_stock(root, main_tree=None):
+    # Directly use database function to get ALL products
+    products = db.get_all_products()
+    
+    # Show all products in a new window, but keep the title as 'Out of Stock Products'
+    win = tk.Toplevel(root)
+    win.title("Out of Stock Products") # Keep this title as requested
+    win.geometry("600x400")
+    
+    tree = ttk.Treeview(win, columns=("ID", "Name", "Category", "Quantity", "Min Stock"), show="headings")
+    for col in tree["columns"]:
+        tree.heading(col, text=col)
+        tree.column(col, width=100)
+    tree.pack(fill="both", expand=True)
+    
+    for product in products: # Iterate through all products now
+        tree.insert("", "end", values=product)
+
+    # Add buttons for Delete Item and Remove Stock
+    btn_frame = ttk.Frame(win, padding="10")
+    btn_frame.pack(fill="x", pady=(5, 0))
+
+    def refresh_out_of_stock_tree():
+        for row in tree.get_children():
+            tree.delete(row)
+        products_to_display = db.get_all_products() # Get all products for refresh
+        for product in products_to_display:
+            tree.insert("", "end", values=product)
+        if main_tree: # Also refresh the main window tree if available
+            populate_tree(main_tree)
+
+    def on_delete_item_clicked(root_window, current_tree, refresh_callback):
+        selected_item = current_tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Selection Error", "Please select a product to delete.")
             return
-            
-        item = tree.item(selected[0])['values']
-        item_id = int(item[0]) # Ensure item_id is integer
-        item_name = item[1]
+        
+        item_values = current_tree.item(selected_item[0])['values']
+        product_id = item_values[0]
+        product_name = item_values[1]
+        
+        remove_product_window(root_window, product_id, product_name, refresh_callback)
 
-        if not messagebox.askyesno("Confirm Delete", 
-                                 f"Are you sure you want to delete '{item_name}'?\nThis action cannot be undone."):
+    def on_remove_stock_clicked(root_window, current_tree, refresh_callback, current_user_id):
+        selected_item = current_tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Selection Error", "Please select a product to remove stock from.")
             return
+        
+        item_values = current_tree.item(selected_item[0])['values']
+        product_id = item_values[0]
+        product_name = item_values[1]
+        current_quantity = item_values[3]
+        
+        remove_stock_window(root_window, product_id, product_name, current_quantity, refresh_callback, current_user_id)
 
-        try:
-            # Add authorization header
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
+    ttk.Button(btn_frame, text="Delete Item", command=lambda: on_delete_item_clicked(win, tree, refresh_out_of_stock_tree)).pack(side="left", padx=5)
+    # Placeholder for current_user_id, replace with actual logged-in user ID
+    ttk.Button(btn_frame, text="Remove Stock", command=lambda: on_remove_stock_clicked(win, tree, refresh_out_of_stock_tree, 1)).pack(side="left", padx=5)
 
-            # Make DELETE request to the API to delete the product
-            response = requests.delete(f"{API_BASE_URL}/product/{item_id}", headers=headers)
-            response.raise_for_status() # Raise an exception for bad status codes
-            
-            messagebox.showinfo("Success", f"Item '{item_name}' has been deleted")
-            
-            # Refresh the treeview after deletion
-            if main_tree:
-                populate_tree(main_tree, auth_token=auth_token)
-
-        except requests.exceptions.RequestException as e:
-            # Attempt to parse API error message if available
-            error_message = str(e)
-            if response and response.content:
-                try:
-                    api_error = response.json()
-                    if 'error' in api_error:
-                        error_message = api_error['error']
-                except:
-                    pass # Ignore if JSON parsing fails
-            messagebox.showerror("API Error", f"Failed to delete item: {error_message}")
-
-    btn_frame = tk.Frame(win)
-    btn_frame.pack(pady=5)
-
-    tk.Button(btn_frame, text="Remove Stock", command=remove_stock).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="Delete Item", command=delete_item).pack(side="left", padx=5)
-
-    # Initial population
-    populate_out_of_stock()
-
-def show_quantity_history(root, item_id, item_name, auth_token=None):
+def show_quantity_history(root, item_id, item_name):
+    # Directly use database function to get history
+    history = db.get_quantity_history(item_id)
+    
+    # Show history in a new window
     win = tk.Toplevel(root)
     win.title(f"Quantity History - {item_name}")
-    win.geometry("800x400")  # Increased width to accommodate new columns
-    win.resizable(False, False)
+    win.geometry("800x400")
+    
+    tree = ttk.Treeview(win, columns=("Date", "Old Quantity", "New Quantity", "Seller/Buyer", "Invoice", "Changed By"), show="headings")
+    for col in tree["columns"]:
+        tree.heading(col, text=col)
+        tree.column(col, width=120)
+    tree.pack(fill="both", expand=True)
+    
+    for old_qty, new_qty, change_date, name, invoice_number, user_id, username in history:
+        tree.insert("", "end", values=(change_date, old_qty, new_qty, name, invoice_number, username))
 
-    # Center the window
-    win.transient(root)
-    win.grab_set()
-
-    # Create main frame
-    frame = tk.Frame(win, padx=20, pady=20)
-    frame.pack(fill="both", expand=True)
-
-    # Product info section
-    info_frame = tk.LabelFrame(frame, text="Product Information", padx=10, pady=10)
-    info_frame.pack(fill="x", pady=(0, 15))
-
-    # Get current product details from API
-    try:
-        # Add authorization header
-        headers = {}
-        if auth_token:
-            headers["Authorization"] = f"Bearer {auth_token}"
-
-        response = requests.get(f"{API_BASE_URL}/product/{item_id}", headers=headers)
-        response.raise_for_status()
-        product = response.json()
-
-        # Name
-        name_frame = tk.Frame(info_frame)
-        name_frame.pack(fill="x", pady=2)
-        tk.Label(name_frame, text="Name:", width=10, anchor="w").pack(side="left")
-        tk.Label(name_frame, text=product.get('name', 'N/A'), font=("Arial", 9, "bold")).pack(side="left")
-
-        # Category
-        cat_frame = tk.Frame(info_frame)
-        cat_frame.pack(fill="x", pady=2)
-        tk.Label(cat_frame, text="Category:", width=10, anchor="w").pack(side="left")
-        tk.Label(cat_frame, text=product.get('category', 'N/A')).pack(side="left")
-
-        # Current Quantity
-        curr_frame = tk.Frame(info_frame)
-        curr_frame.pack(fill="x", pady=2)
-        tk.Label(curr_frame, text="Current Qty:", width=10, anchor="w").pack(side="left")
-        tk.Label(curr_frame, text=str(product.get('quantity', 'N/A')), font=("Arial", 9, "bold")).pack(side="left")
-
-        # Min Stock
-        min_frame = tk.Frame(info_frame)
-        min_frame.pack(fill="x", pady=2)
-        tk.Label(min_frame, text="Min Stock:", width=10, anchor="w").pack(side="left")
-        tk.Label(min_frame, text=product.get('min_stock', 'N/A')).pack(side="left")
-
-        # Created Date
-        created_frame = tk.Frame(info_frame)
-        created_frame.pack(fill="x", pady=2)
-        tk.Label(created_frame, text="Created:", width=10, anchor="w").pack(side="left")
-        created_date_str = product.get('created_date', 'N/A')
-        tk.Label(created_frame, text=created_date_str).pack(side="left")
-
-    except requests.exceptions.RequestException as e:
-        messagebox.showerror("API Error", f"Failed to fetch product details: {e}")
-        win.destroy()
-        return
-
-    # History section
-    history_frame = tk.LabelFrame(frame, text="Quantity History", padx=10, pady=10)
-    history_frame.pack(fill="both", expand=True)
-
-    # Create Treeview for history with seller information and user
-    history_columns = ("Date", "Old Quantity", "New Quantity", "Change", "Name", "Invoice", "Changed By")
-    history_tree = ttk.Treeview(history_frame, columns=history_columns, show="headings", height=10)
-
-    # Configure column widths
-    column_widths = {
-        "Date": 150,
-        "Old Quantity": 100,
-        "New Quantity": 100,
-        "Change": 80,
-        "Name": 120,
-        "Invoice": 100,
-        "Changed By": 100
-    }
-
-    for col in history_columns:
-        history_tree.heading(col, text=col)
-        history_tree.column(col, width=column_widths.get(col, 100))
-
-    history_tree.pack(fill="both", expand=True)
-
-    # Add scrollbar to history tree
-    history_scroll = ttk.Scrollbar(history_frame, orient="vertical", command=history_tree.yview)
-    history_scroll.pack(side="right", fill="y")
-    history_tree.configure(yscrollcommand=history_scroll.set)
-
-    # Populate history from API
-    try:
-        # Add authorization header
-        headers = {}
-        if auth_token:
-            headers["Authorization"] = f"Bearer {auth_token}"
-
-        response = requests.get(f"{API_BASE_URL}/product/{item_id}/history", headers=headers)
-        response.raise_for_status()
-        history = response.json()
-
-        # Dictionary to cache usernames by user ID
-        user_cache = {}
-
-        for record in history:
-            old_qty = record.get('old_quantity', 'N/A')
-            new_qty = record.get('new_quantity', 'N/A')
-            change_date_str = record.get('change_date', 'N/A')
-            name = record.get('name', 'N/A')
-            invoice_number = record.get('invoice_number', 'N/A')
-            user_id = record.get('user_id') # Get user_id from the record (can be None)
-
-            # Fetch username if user_id exists and not in cache
-            changed_by_username = "N/A" # Default value
-            if user_id is not None:
-                if user_id in user_cache:
-                    changed_by_username = user_cache[user_id]
-                else:
-                    try:
-                        user_response = requests.get(f"{API_BASE_URL}/users/{user_id}", headers=headers)
-                        user_response.raise_for_status()
-                        user_data = user_response.json()
-                        changed_by_username = user_data.get('username', f"User {user_id}") # Fallback to User ID
-                        user_cache[user_id] = changed_by_username # Cache the username
-                    except requests.exceptions.RequestException:
-                        changed_by_username = f"User {user_id} (Error)" # Indicate error fetching username
-
-            change = "N/A"
-            try:
-                old_num = int(old_qty) if old_qty != "N/A" else 0
-                new_num = int(new_qty) if new_qty != "N/A" else 0
-                change = new_num - old_num
-                change_text = f"{'+' if change > 0 else ''}{change}"
-            except ValueError:
-                change_text = "N/A"
-
-            history_tree.insert("", "end", values=(
-                change_date_str,
-                old_qty,
-                new_qty,
-                change_text,
-                name,
-                invoice_number,
-                changed_by_username # Display the fetched username
-            ))
-
-    except requests.exceptions.RequestException as e:
-        messagebox.showerror("API Error", f"Failed to fetch history: {e}")
-
-    # Only show the Close button
-    button_frame = tk.Frame(frame)
-    button_frame.pack(side="bottom", fill="x", pady=(10, 0))
-    close_btn = tk.Button(button_frame, text="Close", command=win.destroy, width=10)
-    close_btn.pack(side="left", padx=5)
-
-def add_user_window(root, auth_token=None):
-    """Opens a window to add a new user."""
+def add_user_window(root):
     win = tk.Toplevel(root)
-    win.title("Add New User")
+    win.title("Add User")
     win.geometry("300x200")
-    win.resizable(False, False)
-
-    # Center the window
-    win.transient(root)
-    win.grab_set()
-
-    frame = tk.Frame(win, padx=20, pady=20)
+    
+    frame = ttk.Frame(win, padding="20")
     frame.pack(fill="both", expand=True)
-
-    # Username
-    tk.Label(frame, text="Username:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    username_entry = tk.Entry(frame)
-    username_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-
-    # Password
-    tk.Label(frame, text="Password:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-    password_entry = tk.Entry(frame, show="*")
-    password_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-
-    # Role (optional, defaults to 'user' in backend if not sent)
-    # You can add a dropdown or entry for role if needed later
-
+    
+    ttk.Label(frame, text="Username:").grid(row=0, column=0, padx=5, pady=5)
+    username_entry = ttk.Entry(frame)
+    username_entry.grid(row=0, column=1, padx=5, pady=5)
+    
+    ttk.Label(frame, text="Password:").grid(row=1, column=0, padx=5, pady=5)
+    password_entry = ttk.Entry(frame, show="*")
+    password_entry.grid(row=1, column=1, padx=5, pady=5)
+    
     def save_user():
         username = username_entry.get().strip()
         password = password_entry.get().strip()
-
+        
         if not username or not password:
             messagebox.showwarning("Input Error", "Please enter both username and password")
             return
-
+        
         try:
-            user_data = {
-                "username": username,
-                "password": password,
-                "role": "user" # Default role, can be changed
-            }
-
-            headers = {}
-            if auth_token:
-                headers["Authorization"] = f"Bearer {auth_token}"
-
-            response = requests.post(f"{API_BASE_URL}/users", json=user_data, headers=headers)
-            response.raise_for_status() # Raise an exception for bad status codes
-
-            messagebox.showinfo("Success", "User created successfully!")
-            win.destroy()
-
-        except requests.exceptions.RequestException as e:
-            error_message = str(e)
-            if response and response.content:
-                try:
-                    api_error = response.json()
-                    if 'error' in api_error:
-                        error_message = api_error['error']
-                except:
-                    pass # Ignore if JSON parsing fails
-            messagebox.showerror("API Error", f"Failed to add user: {error_message}")
-
+            # Directly use database function to add user
+            if db.add_user_to_db(username, password, "user"):
+                messagebox.showinfo("Success", "User created successfully!")
+                win.destroy()
+            else:
+                messagebox.showerror("Error", "Username already exists")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to add user: {e}")
+    
     tk.Button(frame, text="Create User", command=save_user).grid(row=2, column=0, columnspan=2, pady=10)
-
+    
     # Allow pressing Enter to save
     win.bind('<Return>', lambda event=None: save_user())
-
+    
     frame.columnconfigure(1, weight=1) # Allow username/password entries to expand
+
+def add_product_window(root, refresh_tree_callback=None, current_user_id=None):
+    """Opens a new window to add a new product."""
+    win = tk.Toplevel(root)
+    win.title("Add New Product")
+    win.geometry("400x300")
+
+    frame = ttk.Frame(win, padding="20")
+    frame.pack(fill="both", expand=True)
+
+    ttk.Label(frame, text="Name:").grid(row=0, column=0, padx=5, pady=5)
+    name_entry = ttk.Entry(frame)
+    name_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    ttk.Label(frame, text="Category:").grid(row=1, column=0, padx=5, pady=5)
+    category_entry = ttk.Entry(frame)
+    category_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    ttk.Label(frame, text="Quantity:").grid(row=2, column=0, padx=5, pady=5)
+    quantity_entry = ttk.Entry(frame)
+    quantity_entry.grid(row=2, column=1, padx=5, pady=5)
+
+    ttk.Label(frame, text="Min Stock:").grid(row=3, column=0, padx=5, pady=5)
+    min_stock_entry = ttk.Entry(frame)
+    min_stock_entry.grid(row=3, column=1, padx=5, pady=5)
+
+    def save_product():
+        name = name_entry.get().strip()
+        category = category_entry.get().strip()
+        quantity_str = quantity_entry.get().strip()
+        min_stock_str = min_stock_entry.get().strip()
+
+        if not name or not quantity_str or not min_stock_str:
+            messagebox.showwarning("Input Error", "Name, Quantity, and Min Stock are required.")
+            return
+
+        try:
+            quantity = int(quantity_str)
+            min_stock = int(min_stock_str)
+
+            if quantity < 0 or min_stock < 0:
+                messagebox.showwarning("Input Error", "Quantity and Min Stock cannot be negative.")
+                return
+
+            # Pass current_user_id to add_product
+            db.add_product(name, category, quantity, min_stock, current_user_id)
+            messagebox.showinfo("Success", "Product added successfully!")
+            win.destroy()
+            if refresh_tree_callback:
+                refresh_tree_callback()
+        except ValueError:
+            messagebox.showwarning("Input Error", "Quantity and Min Stock must be valid numbers.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to add product: {e}")
+
+    tk.Button(frame, text="Add Product", command=save_product).grid(row=4, column=0, columnspan=2, pady=10)
+    frame.columnconfigure(1, weight=1)
+
+def update_quantity_window(root, product_id, current_quantity, refresh_tree_callback=None, current_user_id=None):
+    """Opens a new window to update the quantity of an existing product."""
+    win = tk.Toplevel(root)
+    win.title(f"Update Quantity for Product ID: {product_id}")
+    win.geometry("400x250")
+
+    frame = ttk.Frame(win, padding="20")
+    frame.pack(fill="both", expand=True)
+
+    ttk.Label(frame, text=f"Current Quantity: {current_quantity}").grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+
+    ttk.Label(frame, text="New Quantity:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+    new_quantity_entry = ttk.Entry(frame)
+    new_quantity_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+    ttk.Label(frame, text="Seller/Buyer Name (Optional):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+    seller_buyer_entry = ttk.Entry(frame)
+    seller_buyer_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+
+    ttk.Label(frame, text="Invoice Number (Optional):").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+    invoice_number_entry = ttk.Entry(frame)
+    invoice_number_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+
+    def save_quantity():
+        new_quantity_str = new_quantity_entry.get().strip()
+        seller_name = seller_buyer_entry.get().strip()
+        invoice_number = invoice_number_entry.get().strip()
+
+        if not new_quantity_str:
+            messagebox.showwarning("Input Error", "New Quantity is required.")
+            return
+
+        try:
+            quantity_to_add = int(new_quantity_str)
+            if quantity_to_add < 0: # Ensure only non-negative quantities can be added
+                messagebox.showwarning("Input Error", "Quantity to add must be a non-negative number.")
+                return
+
+            final_quantity = current_quantity + quantity_to_add # Add to current quantity
+
+            db.update_product_quantity(product_id, final_quantity, seller_name, invoice_number, current_user_id)
+            messagebox.showinfo("Success", "Quantity updated successfully!")
+            win.destroy()
+            if refresh_tree_callback:
+                refresh_tree_callback()
+        except ValueError:
+            messagebox.showwarning("Input Error", "New Quantity must be a valid number.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to update quantity: {e}")
+
+    tk.Button(frame, text="Update Quantity", command=save_quantity).grid(row=4, column=0, columnspan=2, pady=10)
+    frame.columnconfigure(1, weight=1)
+
+def remove_product_window(root, product_id, product_name, refresh_tree_callback=None):
+    """Opens a confirmation window to remove a product."""
+    if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to remove {product_name} (ID: {product_id})?\nThis action cannot be undone."):
+        try:
+            db.delete_product(product_id)
+            messagebox.showinfo("Success", f"{product_name} removed successfully!")
+            if refresh_tree_callback:
+                refresh_tree_callback()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to remove product: {e}")
+
+def remove_stock_window(root, product_id, product_name, current_quantity, refresh_tree_callback=None, current_user_id=None):
+    """Opens a window to remove stock from a product (reduce quantity)."""
+    win = tk.Toplevel(root)
+    win.title(f"Remove Stock from {product_name} (ID: {product_id})")
+    win.geometry("400x250")
+
+    frame = ttk.Frame(win, padding="20")
+    frame.pack(fill="both", expand=True)
+
+    ttk.Label(frame, text=f"Current Quantity: {current_quantity}").grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+
+    ttk.Label(frame, text="Quantity to Remove:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+    quantity_to_remove_entry = ttk.Entry(frame)
+    quantity_to_remove_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+
+    ttk.Label(frame, text="Seller/Buyer Name (Optional):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+    seller_buyer_entry = ttk.Entry(frame)
+    seller_buyer_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+
+    ttk.Label(frame, text="Invoice Number (Optional):").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+    invoice_number_entry = ttk.Entry(frame)
+    invoice_number_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+
+    def save_removal():
+        quantity_to_remove_str = quantity_to_remove_entry.get().strip()
+        seller_name = seller_buyer_entry.get().strip()
+        invoice_number = invoice_number_entry.get().strip()
+
+        if not quantity_to_remove_str:
+            messagebox.showwarning("Input Error", "Quantity to Remove is required.")
+            return
+
+        try:
+            quantity_to_remove = int(quantity_to_remove_str)
+            if quantity_to_remove <= 0:
+                messagebox.showwarning("Input Error", "Quantity to Remove must be a positive number.")
+                return
+            
+            new_quantity = current_quantity - quantity_to_remove
+            if new_quantity < 0:
+                messagebox.showwarning("Warning", f"Removing {quantity_to_remove} would result in a negative quantity ({new_quantity}). Setting to 0 instead.")
+                new_quantity = 0
+
+            db.update_product_quantity(product_id, new_quantity, seller_name, invoice_number, current_user_id)
+            messagebox.showinfo("Success", "Stock removed successfully!")
+            win.destroy()
+            if refresh_tree_callback:
+                refresh_tree_callback()
+        except ValueError:
+            messagebox.showwarning("Input Error", "Quantity to Remove must be a valid number.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to remove stock: {e}")
+
+    tk.Button(frame, text="Remove Stock", command=save_removal).grid(row=4, column=0, columnspan=2, pady=10)
+    frame.columnconfigure(1, weight=1)
+
+def show_add_user_window(parent_root):
+    add_user_win = tk.Toplevel(parent_root)
+    add_user_win.title("Add New User")
+    add_user_win.geometry("400x250")
+    add_user_win.transient(parent_root)
+    add_user_win.grab_set()
+
+    tk.Label(add_user_win, text="Username:").pack(pady=5)
+    username_entry = tk.Entry(add_user_win, width=30)
+    username_entry.pack(pady=5)
+
+    tk.Label(add_user_win, text="Password:").pack(pady=5)
+    password_entry = tk.Entry(add_user_win, width=30, show="*")
+    password_entry.pack(pady=5)
+
+    def add_user_action():
+        username = username_entry.get()
+        password = password_entry.get()
+        if username and password:
+            try:
+                db.add_user(username, password) # This function will be added in db.py
+                messagebox.showinfo("Success", f"User {username} added successfully.")
+                add_user_win.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add user: {e}")
+        else:
+            messagebox.showwarning("Input Error", "Username and password cannot be empty.")
+
+    tk.Button(add_user_win, text="Add User", command=add_user_action).pack(pady=10)
+
+def show_delete_user_window(parent_root):
+    delete_user_win = tk.Toplevel(parent_root)
+    delete_user_win.title("Delete User")
+    delete_user_win.geometry("450x300") # Adjusted size for Treeview
+    delete_user_win.transient(parent_root)
+    delete_user_win.grab_set()
+
+    # Treeview to display users
+    users_tree = ttk.Treeview(delete_user_win, columns=("ID", "Username", "Role"), show="headings")
+    users_tree.heading("ID", text="ID")
+    users_tree.heading("Username", text="Username")
+    users_tree.heading("Role", text="Role")
+    users_tree.column("ID", width=50)
+    users_tree.column("Username", width=150)
+    users_tree.column("Role", width=100)
+    users_tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+    def populate_users_tree():
+        for item in users_tree.get_children():
+            users_tree.delete(item)
+        try:
+            users = db.get_all_users()
+            for user_id, username, role in users: # Unpack tuple directly
+                users_tree.insert("", "end", values=(user_id, username, role))
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to fetch users: {e}")
+    
+    populate_users_tree()
+
+    def delete_user_action():
+        selected_item = users_tree.selection()
+        if selected_item:
+            user_id = users_tree.item(selected_item[0])['values'][0] # Get ID from selected row
+            username = users_tree.item(selected_item[0])['values'][1] # Get username for message
+            if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to delete user {username} (ID: {user_id})?"):
+                try:
+                    db.delete_user(user_id)
+                    messagebox.showinfo("Success", f"User {username} deleted successfully.")
+                    populate_users_tree() # Refresh the list
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to delete user: {e}")
+        else:
+            messagebox.showwarning("Selection Error", "Please select a user to delete.")
+
+    tk.Button(delete_user_win, text="Delete Selected User", command=delete_user_action).pack(pady=10)
+
+def show_all_users_window(parent_root):
+    all_users_win = tk.Toplevel(parent_root)
+    all_users_win.title("Available Users")
+    all_users_win.geometry("500x400")
+    all_users_win.transient(parent_root)
+    all_users_win.grab_set()
+
+    users_tree = ttk.Treeview(all_users_win, columns=("ID", "Username", "Role"), show="headings")
+    users_tree.heading("ID", text="ID")
+    users_tree.heading("Username", text="Username")
+    users_tree.heading("Role", text="Role")
+    users_tree.column("ID", width=50)
+    users_tree.column("Username", width=200)
+    users_tree.column("Role", width=100)
+    users_tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+    try:
+        users = db.get_all_users()
+        for user_id, username, role in users: # Unpack tuple directly, including role
+            users_tree.insert("", "end", values=(user_id, username, role))
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to fetch users: {e}")
+
+    tk.Button(all_users_win, text="Close", command=all_users_win.destroy).pack(pady=10)
+
+def show_change_password_window(parent_root, current_user_id):
+    change_pass_win = tk.Toplevel(parent_root)
+    change_pass_win.title("Change Password")
+    change_pass_win.geometry("400x250")
+    change_pass_win.transient(parent_root)
+    change_pass_win.grab_set()
+
+    tk.Label(change_pass_win, text="Old Password:").pack(pady=5)
+    old_password_entry = tk.Entry(change_pass_win, width=30, show="*")
+    old_password_entry.pack(pady=5)
+
+    tk.Label(change_pass_win, text="New Password:").pack(pady=5)
+    new_password_entry = tk.Entry(change_pass_win, width=30, show="*")
+    new_password_entry.pack(pady=5)
+
+    tk.Label(change_pass_win, text="Confirm New Password:").pack(pady=5)
+    confirm_new_password_entry = tk.Entry(change_pass_win, width=30, show="*")
+    confirm_new_password_entry.pack(pady=5)
+
+    def change_password_action():
+        old_password = old_password_entry.get()
+        new_password = new_password_entry.get()
+        confirm_new_password = confirm_new_password_entry.get()
+
+        if not old_password or not new_password or not confirm_new_password:
+            messagebox.showwarning("Input Error", "All password fields are required.")
+            return
+        if new_password != confirm_new_password:
+            messagebox.showwarning("Input Error", "New password and confirmation do not match.")
+            return
+        
+        try:
+            # Verify old password first
+            user_data = db.get_user_by_id(current_user_id) # Need to fetch user data including password hash
+            if user_data and db.check_password(old_password, user_data['password_hash']):
+                db.update_user_password(current_user_id, new_password) # This function will be added in db.py
+                messagebox.showinfo("Success", "Password changed successfully!")
+                change_pass_win.destroy()
+            else:
+                messagebox.showerror("Error", "Incorrect old password.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to change password: {e}")
+
+    tk.Button(change_pass_win, text="Change Password", command=change_password_action).pack(pady=10)

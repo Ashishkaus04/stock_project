@@ -2,7 +2,7 @@ import requests
 import json
 import pytest
 
-BASE_URL = "https://stock-management-api.onrender.com"
+BASE_URL = "http://127.0.0.1:5000"
 
 @pytest.mark.parametrize("method,endpoint,data", [
     ("GET", "/", None),
