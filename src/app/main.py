@@ -109,14 +109,13 @@ def main():
     # Ensure database tables are created. This will create them if they don't exist.
     db.create_tables()
 
-    # Check for the admin user. If not found, add it.
-    admin_user = db.get_user_by_username("admin")
-    if not admin_user:
-        print("Admin user not found. Adding admin user.")
+    # Create admin user if no users exist in the database (first run or after a full data wipe)
+    if db.get_user_count() == 0:
+        print("No users found. Creating default admin user.")
         db.add_user("admin", "admin123", role="admin")
-        print("Admin user 'admin' created successfully.")
+        print("Default admin user 'admin' created successfully.")
     else:
-        print("Admin user 'admin' already exists.")
+        print("Users already exist in the database. Skipping default admin creation.")
 
     # Debug: Show users right before login attempt
     print("DEBUG: Users in DB right before login attempt:")
@@ -347,6 +346,7 @@ def main():
                     def refresh_and_show_success():
                         db.get_main_db_connection() 
                         db.reset_auto_increment_sequence('products') # Reset products sequence
+                        db.deduplicate_admin_users() # Deduplicate admin users after download
                         ui.populate_tree(tree)
                         hide_progress("Download Complete!")
                         messagebox.showinfo("Download Complete", "Data successfully downloaded from cloud to local!")

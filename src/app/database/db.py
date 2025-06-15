@@ -522,36 +522,13 @@ def recreate_users_table():
     cursor = conn.cursor()
     try:
         cursor.execute("DROP TABLE IF EXISTS users;")
-        # Handle case where sqlite_sequence might not exist yet
-        try:
-            cursor.execute("DELETE FROM sqlite_sequence WHERE name='users';")
-        except sqlite3.OperationalError as e:
-            if "no such table: sqlite_sequence" in str(e):
-                print("Warning: sqlite_sequence table does not exist yet. Skipping reset.")
-                # Do NOT re-raise here, simply proceed
-            else:
-                raise # Re-raise other operational errors
-
-        # Recreate the users table
-        cursor.execute("""
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'user'
-            )
-        """)
         conn.commit()
-        print("Users table recreated successfully.")
-
-        # Run VACUUM to ensure database is clean and auto-increment is truly reset
-        cursor.execute("VACUUM;")
-        conn.commit()
-        print("Database vacuumed after users table recreation.")
-
+        print("Users table dropped.")
+        create_tables()
+        print("Users table recreated.")
     except Exception as e:
+        print(f"Error recreating users table: {str(e)}")
         conn.rollback()
-        print(f"Error recreating users table: {e}")
         raise e
 
 def reset_auto_increment_sequence(table_name):
@@ -559,20 +536,32 @@ def reset_auto_increment_sequence(table_name):
     conn = get_main_db_connection()
     cursor = conn.cursor()
     try:
-        # Get the maximum ID from the table
-        cursor.execute(f"SELECT MAX(id) FROM {table_name}")
-        max_id = cursor.fetchone()[0]
-        if max_id is None:
-            max_id = 0 # If table is empty, start from 0
-
-        # Update sqlite_sequence table
-        # If the entry exists, update it; otherwise, insert it.
-        cursor.execute("""
-            INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES (?, ?)
-        """, (table_name, max_id))
+        # For SQLite, we can simply delete from sqlite_sequence
+        cursor.execute(f"DELETE FROM sqlite_sequence WHERE name='{table_name}';")
         conn.commit()
-        print(f"Auto-increment sequence for {table_name} reset to {max_id}.")
+        print(f"Auto-increment sequence for {table_name} reset.")
     except Exception as e:
+        print(f"Error resetting auto-increment sequence for {table_name}: {str(e)}")
         conn.rollback()
-        print(f"Error resetting auto-increment sequence for {table_name}: {e}")
+        raise e
+
+def deduplicate_admin_users():
+    conn = get_main_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM users WHERE username = 'admin' ORDER BY id ASC;")
+        admin_ids = [row[0] for row in cursor.fetchall()]
+
+        if len(admin_ids) > 1:
+            # Keep the first admin (lowest ID), delete the rest
+            ids_to_delete = admin_ids[1:]
+            placeholders = ','.join(['?' for _ in ids_to_delete])
+            cursor.execute(f"DELETE FROM users WHERE id IN ({placeholders});", tuple(ids_to_delete))
+            conn.commit()
+            print(f"Deduplicated admin users. Removed IDs: {ids_to_delete}")
+        else:
+            print("No duplicate admin users found or only one admin user exists.")
+    except Exception as e:
+        print(f"Error deduplicating admin users: {str(e)}")
+        conn.rollback()
         raise e

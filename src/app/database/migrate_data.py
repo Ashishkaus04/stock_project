@@ -103,10 +103,20 @@ def migrate_data(postgresql_db_url):
             with sqlite_conn:
                 sqlite_cursor = sqlite_conn.cursor()
                 for user in users:
+                    username_from_cloud = user[1] # Assuming username is the second column (index 1)
+                    
+                    # Check if user already exists in local SQLite
+                    sqlite_cursor.execute("SELECT id FROM users WHERE username = ?", (username_from_cloud,))
+                    existing_user = sqlite_cursor.fetchone()
+
+                    if existing_user:
+                        print(f"User '{username_from_cloud}' already exists locally, skipping insertion.")
+                        continue # Skip this user, move to the next
+
                     try:
                         placeholders = ','.join(['?' for _ in user])
                         sqlite_cursor.execute(
-                            f"INSERT INTO users VALUES ({placeholders})",
+                            f"INSERT OR IGNORE INTO users VALUES ({placeholders})",
                             user
                         )
                     except sqlite3.IntegrityError as e:
