@@ -106,34 +106,17 @@ def main():
     # This helps in scenarios where the database file might have been replaced (e.g., by migrate_data.py)
     db.close_main_db_connection()
 
-    # Get the path to the local database file
-    db_file_path = os.path.join(get_app_path(), 'database', 'inventory.db')
-
-    # Ensure database tables are created
+    # Ensure database tables are created. This will create them if they don't exist.
     db.create_tables()
 
-    # Check if the database file exists
-    if not os.path.exists(db_file_path):
-        print(f"Database file {db_file_path} not found. Creating new tables and admin user.")
-        db.create_tables() # This also re-establishes connection
+    # Check for the admin user. If not found, add it.
+    admin_user = db.get_user_by_username("admin")
+    if not admin_user:
+        print("Admin user not found. Adding admin user.")
         db.add_user("admin", "admin123", role="admin")
         print("Admin user 'admin' created successfully.")
-        db.debug_get_all_users() # Debug: show users after creation
     else:
-        # Database file exists, now check for admin user
-        print(f"Database file {db_file_path} found. Ensuring tables and checking for admin user.")
-        # Ensure tables are created/verified, and connection is fresh
-        db.create_tables() # This also re-establishes connection
-        admin_user = db.get_user_by_username("admin")
-        if not admin_user:
-            print("Admin user not found in existing database. Recreating users table and adding admin user.")
-            db.recreate_users_table()
-            db.add_user("admin", "admin123", role="admin")
-            print("Admin user 'admin' created successfully in existing database.")
-            db.debug_get_all_users() # Debug: show users after recreation
-        else:
-            print("Admin user 'admin' already exists.")
-            db.debug_get_all_users() # Debug: show users if admin already exists
+        print("Admin user 'admin' already exists.")
 
     # Debug: Show users right before login attempt
     print("DEBUG: Users in DB right before login attempt:")
