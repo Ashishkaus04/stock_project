@@ -2,13 +2,27 @@ import sqlite3
 from datetime import datetime
 import os
 import bcrypt
+import sys
 
 # Global variable to hold the main application's database connection
 _main_db_connection = None
 
+def get_app_path():
+    """Get the path to the application directory, works in both dev and PyInstaller"""
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle, the app directory is at the root
+        return os.path.dirname(sys.executable)
+    else:
+        # Running in normal Python environment, navigate up from current file
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def connect_db():
     """Connect to the SQLite database"""
-    db_path = os.path.join(os.path.dirname(__file__), 'inventory.db')
+    app_base_path = get_app_path()
+    # When bundled, 'app' is a top-level directory within the executable. 'database' is inside 'app'.
+    db_path = os.path.join(app_base_path, 'app', 'database', 'inventory.db')
+    # Ensure database directory exists
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
     return sqlite3.connect(db_path, check_same_thread=False)
 
 def get_main_db_connection():

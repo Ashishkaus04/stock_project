@@ -1,14 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
+
+# Add src directory to Python path
+src_path = os.path.abspath(os.path.join(os.path.abspath('.'), 'src'))
+sys.path.insert(0, src_path)
 
 a = Analysis(
     ['run.py'],
-    pathex=['E:\\stock_project'],
+    pathex=[src_path],  # Add src directory to path
     binaries=[],
     datas=[
         ('src/app', 'app'),
-        ('src/app/database/inventory.db', 'app/database'),
-        ('src/app/database/upload_to_cloud.py', 'app/database'),
-        ('src/app/database/migrate_data.py', 'app/database'),
+        ('src/app/database', 'app/database'),  # Include entire database directory
         ('static', 'static'),
         ('C:\\Users\\DELL\\AppData\\Local\\Programs\\Python\\Python313\\tcl', 'tcl')
     ],
@@ -28,6 +32,7 @@ a = Analysis(
         'datetime',
         'csv',
         'psycopg',
+        'psycopg2',
         'flask',
         'flask_sqlalchemy',
         'flask_migrate',
@@ -41,6 +46,9 @@ a = Analysis(
         'app.main',
         'app.ui',
         'app.database',
+        'app.database.db',
+        'app.database.migrate_data',
+        'app.database.upload_to_cloud',
         'bcrypt'
     ],
     hookspath=[],
@@ -61,7 +69,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,
+    console=True,  # Set to True temporarily for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

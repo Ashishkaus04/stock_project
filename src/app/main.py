@@ -14,8 +14,8 @@ import subprocess
 import sys
 
 # Import from local packages
-from .ui import ui
-from .database import db
+from app.ui import ui
+from app.database import db
 
 from dotenv import load_dotenv
 
@@ -25,6 +25,15 @@ load_dotenv()
 # Define default font configuration
 DEFAULT_FONT = ('Helvetica', 12)
 HEADING_FONT = ('Helvetica', 12, 'bold')
+
+# Get the path to the application directory, works in both dev and PyInstaller
+def get_app_path():
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle
+        return os.path.dirname(sys.executable)
+    else:
+        # Running in normal Python environment
+        return os.path.dirname(os.path.abspath(__file__))
 
 class LoginWindow:
     def __init__(self):
@@ -98,7 +107,7 @@ def main():
     db.close_main_db_connection()
 
     # Get the path to the local database file
-    db_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database', 'inventory.db')
+    db_file_path = os.path.join(get_app_path(), 'database', 'inventory.db')
 
     # Ensure database tables are created
     db.create_tables()
@@ -339,7 +348,7 @@ def main():
             def run_download():
                 try:
                     # Delete the existing local database file if it exists
-                    db_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'database', 'inventory.db')
+                    db_file_path = os.path.join(get_app_path(), 'database', 'inventory.db')
                     if os.path.exists(db_file_path):
                         os.remove(db_file_path)
                         print(f"Local database {db_file_path} deleted successfully.")
@@ -347,24 +356,9 @@ def main():
                     # Define the PostgreSQL DATABASE_URL
                     postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
                     
-                    # Run the migration script as a subprocess, capturing output
-                    env = os.environ.copy()
-                    env['DATABASE_URL'] = postgresql_db_url
-                    process = subprocess.Popen([sys.executable, "src/app/database/migrate_data.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
-                    
-                    for line in process.stdout:
-                        print(line.strip()) # Print to console as well
-                        if line.startswith("PROGRESS:"):
-                            try:
-                                percentage = int(line.strip().split(":")[1])
-                                root.after(0, lambda: update_progress(percentage, "Downloading data..."))
-                            except (ValueError, IndexError):
-                                pass # Ignore malformed progress lines
-
-                    process.wait()
-
-                    if process.returncode != 0:
-                        raise subprocess.CalledProcessError(process.returncode, process.args)
+                    # Import and run migration directly
+                    from app.database.migrate_data import migrate_data
+                    migrate_data(postgresql_db_url)
                     
                     # Re-establish the main database connection and refresh UI on the main thread after successful download
                     def refresh_and_show_success():
@@ -374,21 +368,11 @@ def main():
                         hide_progress("Download Complete!")
                         messagebox.showinfo("Download Complete", "Data successfully downloaded from cloud to local!")
                     root.after(0, refresh_and_show_success)
-                except FileNotFoundError as e:
-                    def show_file_error(error):
-                        hide_progress("Download Failed.")
-                        messagebox.showerror("Error", f"Local database file not found at {db_file_path}. Please ensure the path is correct.")
-                    root.after(0, lambda error=e: show_file_error(error))
-                except subprocess.CalledProcessError as e:
-                    def show_process_error(error):
-                        hide_progress("Download Failed.")
-                        messagebox.showerror("Error", f"Failed to download data. Migration script exited with error: {error}")
-                    root.after(0, lambda error=e: show_process_error(error))
                 except Exception as e:
-                    def show_general_error(error):
+                    def show_error(error):
                         hide_progress("Download Failed.")
                         messagebox.showerror("Error", f"An unexpected error occurred during download: {error}")
-                    root.after(0, lambda error=e: show_general_error(error))
+                    root.after(0, lambda error=e: show_error(error))
                 finally:
                     def cleanup():
                         hide_progress("") # Ensure progress bar is hidden eventually
@@ -409,24 +393,9 @@ def main():
                     # Define the PostgreSQL DATABASE_URL
                     postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
                     
-                    # Run the upload script as a subprocess, capturing output
-                    env = os.environ.copy()
-                    env['DATABASE_URL'] = postgresql_db_url
-                    process = subprocess.Popen([sys.executable, "src/app/database/upload_to_cloud.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
-
-                    for line in process.stdout:
-                        print(line.strip()) # Print to console as well
-                        if line.startswith("PROGRESS:"):
-                            try:
-                                percentage = int(line.strip().split(":")[1])
-                                root.after(0, lambda: update_progress(percentage, "Uploading data..."))
-                            except (ValueError, IndexError):
-                                pass # Ignore malformed progress lines
-
-                    process.wait()
-
-                    if process.returncode != 0:
-                        raise subprocess.CalledProcessError(process.returncode, process.args)
+                    # Import and run upload directly
+                    from app.database.upload_to_cloud import upload_data
+                    upload_data(postgresql_db_url)
                     
                     # Re-establish the main database connection and refresh UI on the main thread after successful upload
                     def refresh_and_show_success():
@@ -435,16 +404,11 @@ def main():
                         hide_progress("Upload Complete!")
                         messagebox.showinfo("Upload Complete", "Data successfully uploaded from local to cloud!")
                     root.after(0, refresh_and_show_success)
-                except subprocess.CalledProcessError as e:
-                    def show_process_error(error):
-                        hide_progress("Upload Failed.")
-                        messagebox.showerror("Error", f"Failed to upload data. Upload script exited with error: {error}")
-                    root.after(0, lambda error=e: show_process_error(error))
                 except Exception as e:
-                    def show_general_error(error):
+                    def show_error(error):
                         hide_progress("Upload Failed.")
                         messagebox.showerror("Error", f"An unexpected error occurred during upload: {error}")
-                    root.after(0, lambda error=e: show_general_error(error))
+                    root.after(0, lambda error=e: show_error(error))
                 finally:
                     def cleanup():
                         hide_progress("")

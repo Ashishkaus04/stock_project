@@ -3,18 +3,31 @@ import psycopg
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+import sys
 
 # Load environment variables
 load_dotenv()
 
+def get_app_path():
+    """Get the path to the application directory, works in both dev and PyInstaller"""
+    if getattr(sys, 'frozen', False):
+        # Running in a PyInstaller bundle, the app directory is at the root
+        return os.path.dirname(sys.executable)
+    else:
+        # Running in normal Python environment, navigate up from current file
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def connect_sqlite():
     """Connect to the SQLite database"""
-    db_path = os.path.join(os.path.dirname(__file__), 'inventory.db')
+    app_base_path = get_app_path()
+    # When bundled, 'app' is a top-level directory within the executable. 'database' is inside 'app'.
+    db_path = os.path.join(app_base_path, 'app', 'database', 'inventory.db')
+    # Ensure database directory exists
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
     return sqlite3.connect(db_path)
 
-def connect_postgres():
+def connect_postgres(database_url):
     """Connect to the PostgreSQL database"""
-    database_url = os.getenv('DATABASE_URL')
     if not database_url:
         raise ValueError("DATABASE_URL environment variable is not set")
     return psycopg.connect(database_url)
@@ -54,13 +67,13 @@ def create_postgres_table(pg_conn, table_name, columns):
         cursor.execute(create_table_sql)
         pg_conn.commit()
 
-def upload_data():
+def upload_data(postgresql_db_url):
     print("Starting data upload from SQLite to PostgreSQL...")
     print("PROGRESS:0") # Initial progress
     
     # Connect to both databases
     sqlite_conn = connect_sqlite()
-    pg_conn = connect_postgres()
+    pg_conn = connect_postgres(postgresql_db_url)
     
     try:
         # Get and create table structures
@@ -165,4 +178,9 @@ def upload_data():
         pg_conn.close()
 
 if __name__ == "__main__":
-    upload_data() 
+    # Get PostgreSQL DATABASE_URL from environment variable
+    cloud_db_url = os.environ.get("DATABASE_URL")
+    if not cloud_db_url:
+        print("DATABASE_URL environment variable not set. Cannot upload to cloud.")
+        sys.exit(1)
+    upload_data(cloud_db_url) 
