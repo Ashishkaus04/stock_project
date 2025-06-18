@@ -150,8 +150,90 @@ def main():
     def logout():
         root.quit()
     
-    ttk.Button(right_buttons_frame, text="Logout", command=logout, style='TButton').pack(side="top", pady=(0, 2)) # Small pady below logout
-    ttk.Button(right_buttons_frame, text="Refresh", command=lambda: ui.populate_tree(tree), style='TButton').pack(side="top", pady=(2, 0)) # Small pady above refresh
+    def show_out_of_stock_window():
+        ui.show_out_of_stock(root, tree)
+
+    def show_in_stock_window():
+        ui.show_in_stock(root, tree)
+
+    def download_to_local():
+        if messagebox.askyesno("Confirm Download", "This will replace your local data with data from the cloud database. Are you sure you want to proceed?"):
+            # Close the main application's database connection before starting the background thread
+            db.close_main_db_connection()
+            def run_download():
+                try:
+                    # Delete the existing local database file if it exists
+                    db_file_path = os.path.join(get_app_path(), 'database', 'inventory.db')
+                    if os.path.exists(db_file_path):
+                        os.remove(db_file_path)
+                        print(f"Local database {db_file_path} deleted successfully.")
+                    # Define the PostgreSQL DATABASE_URL
+                    postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
+                    # Import and run migration directly
+                    from app.database.migrate_data import migrate_data
+                    migrate_data(postgresql_db_url)
+                    # Re-establish the main database connection and refresh UI on the main thread after successful download
+                    def refresh_and_show_success():
+                        db.get_main_db_connection() 
+                        db.reset_auto_increment_sequence('products') # Reset products sequence
+                        db.deduplicate_admin_users() # Deduplicate admin users after download
+                        ui.populate_tree(tree)
+                        hide_progress("Download Complete!")
+                        messagebox.showinfo("Download Complete", "Data successfully downloaded from cloud to local!")
+                    root.after(0, refresh_and_show_success)
+                except Exception as e:
+                    def show_error(error):
+                        hide_progress("Download Failed.")
+                        messagebox.showerror("Error", f"An unexpected error occurred during download: {error}")
+                    root.after(0, lambda error=e: show_error(error))
+                finally:
+                    def cleanup():
+                        hide_progress("") # Ensure progress bar is hidden eventually
+                    root.after(0, cleanup)
+            # Start the download process in a background thread
+            print("DEBUG: Calling show_progress for download.")
+            show_progress("Downloading data...", mode="determinate")
+            threading.Thread(target=run_download, daemon=True).start()
+
+    def upload_to_cloud():
+        if messagebox.askyesno("Confirm Upload", "This will replace your cloud data with data from your local database. Are you sure you want to proceed?"):
+            # Close the main application's database connection before starting the background thread
+            db.close_main_db_connection()
+            def run_upload():
+                try:
+                    # Define the PostgreSQL DATABASE_URL
+                    postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
+                    # Import and run upload directly
+                    from app.database.upload_to_cloud import upload_data
+                    upload_data(postgresql_db_url)
+                    # Re-establish the main database connection and refresh UI on the main thread after successful upload
+                    def refresh_and_show_success():
+                        db.get_main_db_connection() 
+                        ui.populate_tree(tree)
+                        hide_progress("Upload Complete!")
+                        messagebox.showinfo("Upload Complete", "Data successfully uploaded from local to cloud!")
+                    root.after(0, refresh_and_show_success)
+                except Exception as e:
+                    def show_error(error):
+                        hide_progress("Upload Failed.")
+                        messagebox.showerror("Error", f"An unexpected error occurred during upload: {error}")
+                    root.after(0, lambda error=e: show_error(error))
+                finally:
+                    def cleanup():
+                        hide_progress("")
+                    root.after(0, cleanup)
+            # Start the upload process in a background thread
+            print("DEBUG: Calling show_progress for upload.")
+            show_progress("Uploading data...", mode="determinate")
+            threading.Thread(target=run_upload, daemon=True).start()
+
+    # Place buttons in a 2x3 grid as per user request (after all function definitions)
+    ttk.Button(right_buttons_frame, text="Download to Local", command=download_to_local, style='TButton').grid(row=0, column=0, padx=2, pady=2)
+    ttk.Button(right_buttons_frame, text="In-Stock Products", command=show_in_stock_window, style='TButton').grid(row=0, column=1, padx=2, pady=2)
+    ttk.Button(right_buttons_frame, text="Refresh", command=lambda: ui.populate_tree(tree), style='TButton').grid(row=0, column=2, padx=2, pady=2)
+    ttk.Button(right_buttons_frame, text="Upload to Cloud", command=upload_to_cloud, style='TButton').grid(row=1, column=0, padx=2, pady=2)
+    ttk.Button(right_buttons_frame, text="Out of Stock Products", command=show_out_of_stock_window, style='TButton').grid(row=1, column=1, padx=2, pady=2)
+    ttk.Button(right_buttons_frame, text="Logout", command=logout, style='TButton').grid(row=1, column=2, padx=2, pady=2)
 
     # Initialize progress bar and label (hidden initially)
     progress_bar = ttk.Progressbar(root, orient="horizontal", length=400, mode="indeterminate")
@@ -186,17 +268,14 @@ def main():
     admin_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Admin", menu=admin_menu)
 
-    # Stock Menu
-    stock_menu = tk.Menu(menubar, tearoff=0)
-    menubar.add_cascade(label="Stock", menu=stock_menu)
-
-    # Export Menu
+    # Remove Stock and Data menus from the menubar
+    # stock_menu = tk.Menu(menubar, tearoff=0)
+    # menubar.add_cascade(label="Stock", menu=stock_menu)
+    # export_menu = tk.Menu(menubar, tearoff=0)
     export_menu = tk.Menu(menubar, tearoff=0)
     menubar.add_cascade(label="Export", menu=export_menu)
-
-    # Data Menu
-    data_menu = tk.Menu(menubar, tearoff=0)
-    menubar.add_cascade(label="Data", menu=data_menu)
+    # data_menu = tk.Menu(menubar, tearoff=0)
+    # menubar.add_cascade(label="Data", menu=data_menu)
 
     # --- Function Definitions ---
     def export_selected_to_csv():
@@ -304,12 +383,6 @@ def main():
             item_name = item[1]
             ui.show_update_quantity_window(root, item_id, item_name, current_user_id=int(user_data['id']))
 
-    def show_out_of_stock_window():
-        ui.show_out_of_stock(root, tree)
-
-    def show_in_stock_window():
-        ui.show_in_stock(root, tree)
-
     def show_add_user_window():
         ui.show_add_user_window(root)
 
@@ -322,86 +395,6 @@ def main():
     def show_change_password_window():
         ui.show_change_password_window(root, int(user_data['id']))
 
-    def download_to_local():
-        if messagebox.askyesno("Confirm Download", "This will replace your local data with data from the cloud database. Are you sure you want to proceed?"):
-            # Close the main application's database connection before starting the background thread
-            db.close_main_db_connection()
-
-            def run_download():
-                try:
-                    # Delete the existing local database file if it exists
-                    db_file_path = os.path.join(get_app_path(), 'database', 'inventory.db')
-                    if os.path.exists(db_file_path):
-                        os.remove(db_file_path)
-                        print(f"Local database {db_file_path} deleted successfully.")
-
-                    # Define the PostgreSQL DATABASE_URL
-                    postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
-                    
-                    # Import and run migration directly
-                    from app.database.migrate_data import migrate_data
-                    migrate_data(postgresql_db_url)
-                    
-                    # Re-establish the main database connection and refresh UI on the main thread after successful download
-                    def refresh_and_show_success():
-                        db.get_main_db_connection() 
-                        db.reset_auto_increment_sequence('products') # Reset products sequence
-                        db.deduplicate_admin_users() # Deduplicate admin users after download
-                        ui.populate_tree(tree)
-                        hide_progress("Download Complete!")
-                        messagebox.showinfo("Download Complete", "Data successfully downloaded from cloud to local!")
-                    root.after(0, refresh_and_show_success)
-                except Exception as e:
-                    def show_error(error):
-                        hide_progress("Download Failed.")
-                        messagebox.showerror("Error", f"An unexpected error occurred during download: {error}")
-                    root.after(0, lambda error=e: show_error(error))
-                finally:
-                    def cleanup():
-                        hide_progress("") # Ensure progress bar is hidden eventually
-                    root.after(0, cleanup)
-
-            # Start the download process in a background thread
-            print("DEBUG: Calling show_progress for download.")
-            show_progress("Downloading data...", mode="determinate")
-            threading.Thread(target=run_download, daemon=True).start()
-
-    def upload_to_cloud():
-        if messagebox.askyesno("Confirm Upload", "This will replace your cloud data with data from your local database. Are you sure you want to proceed?"):
-            # Close the main application's database connection before starting the background thread
-            db.close_main_db_connection()
-
-            def run_upload():
-                try:
-                    # Define the PostgreSQL DATABASE_URL
-                    postgresql_db_url = "postgresql://Stock_Database_owner:npg_9REjbMoDi2wc@ep-misty-mountain-a15c30qc-pooler.ap-southeast-1.aws.neon.tech/Stock_Database?sslmode=require"
-                    
-                    # Import and run upload directly
-                    from app.database.upload_to_cloud import upload_data
-                    upload_data(postgresql_db_url)
-                    
-                    # Re-establish the main database connection and refresh UI on the main thread after successful upload
-                    def refresh_and_show_success():
-                        db.get_main_db_connection() 
-                        ui.populate_tree(tree)
-                        hide_progress("Upload Complete!")
-                        messagebox.showinfo("Upload Complete", "Data successfully uploaded from local to cloud!")
-                    root.after(0, refresh_and_show_success)
-                except Exception as e:
-                    def show_error(error):
-                        hide_progress("Upload Failed.")
-                        messagebox.showerror("Error", f"An unexpected error occurred during upload: {error}")
-                    root.after(0, lambda error=e: show_error(error))
-                finally:
-                    def cleanup():
-                        hide_progress("")
-                    root.after(0, cleanup)
-            
-            # Start the upload process in a background thread
-            print("DEBUG: Calling show_progress for upload.")
-            show_progress("Uploading data...", mode="determinate")
-            threading.Thread(target=run_upload, daemon=True).start()
-
     # Add menu commands
     # Only show user management options for admin users
     if user_data['role'] == 'admin':
@@ -412,14 +405,8 @@ def main():
 
     admin_menu.add_command(label="Change Password", command=show_change_password_window)
 
-    stock_menu.add_command(label="In-Stock Products", command=show_in_stock_window)
-    stock_menu.add_command(label="Out of Stock Products", command=show_out_of_stock_window)
-
     export_menu.add_command(label="Export to CSV", command=export_selected_to_csv)
     export_menu.add_command(label="Print Stock", command=print_stock)
-
-    data_menu.add_command(label="Download to Local", command=download_to_local)
-    data_menu.add_command(label="Upload to Cloud", command=upload_to_cloud)
 
     # --- Search Frame ---
     search_frame = tk.Frame(root)

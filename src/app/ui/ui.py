@@ -32,7 +32,23 @@ def show_in_stock(root, main_tree=None):
     win = tk.Toplevel(root)
     win.title("In-Stock Products")
     win.geometry("600x400")
-    
+
+    # --- Search Bar ---
+    search_frame = ttk.Frame(win, padding="5")
+    search_frame.pack(fill="x")
+    search_var = tk.StringVar()
+    search_entry = ttk.Entry(search_frame, textvariable=search_var, width=30)
+    search_entry.pack(side="left", padx=(0, 5))
+    def do_search(event=None):
+        term = search_var.get().strip().lower()
+        filtered = [p for p in db.get_all_products() if p[3] > 0 and (term in str(p[1]).lower() or term in str(p[2]).lower())] if term else [p for p in db.get_all_products() if p[3] > 0]
+        tree.delete(*tree.get_children())
+        for product in filtered:
+            tree.insert("", "end", values=product)
+    search_button = ttk.Button(search_frame, text="Search", command=do_search)
+    search_button.pack(side="left")
+    search_entry.bind('<Return>', do_search)
+
     tree = ttk.Treeview(win, columns=("ID", "Name", "Category", "Quantity", "Min Stock"), show="headings")
     for col in tree["columns"]:
         tree.heading(col, text=col)
@@ -83,7 +99,23 @@ def show_out_of_stock(root, main_tree=None):
     win = tk.Toplevel(root)
     win.title("Out of Stock Products") # Keep this title as requested
     win.geometry("600x400")
-    
+
+    # --- Search Bar ---
+    search_frame = ttk.Frame(win, padding="5")
+    search_frame.pack(fill="x")
+    search_var = tk.StringVar()
+    search_entry = ttk.Entry(search_frame, textvariable=search_var, width=30)
+    search_entry.pack(side="left", padx=(0, 5))
+    def do_search(event=None):
+        term = search_var.get().strip().lower()
+        filtered = [p for p in db.get_all_products() if term in str(p[1]).lower() or term in str(p[2]).lower()] if term else db.get_all_products()
+        tree.delete(*tree.get_children())
+        for product in filtered:
+            tree.insert("", "end", values=product)
+    search_button = ttk.Button(search_frame, text="Search", command=do_search)
+    search_button.pack(side="left")
+    search_entry.bind('<Return>', do_search)
+
     tree = ttk.Treeview(win, columns=("ID", "Name", "Category", "Quantity", "Min Stock"), show="headings")
     for col in tree["columns"]:
         tree.heading(col, text=col)
