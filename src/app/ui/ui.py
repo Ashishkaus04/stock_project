@@ -24,11 +24,10 @@ def populate_tree(tree, search_term=None):
         messagebox.showerror("Error", f"Failed to fetch products: {e}")
 
 def show_in_stock(root, main_tree=None):
-    # Directly use database function to get in-stock products
+    # Directly use database function to get all products
     products = db.get_all_products()
-    in_stock = [p for p in products if p[3] > 0]
     
-    # Show in-stock products in a new window
+    # Show all products in a new window
     win = tk.Toplevel(root)
     win.title("In-Stock Products")
     win.geometry("600x400")
@@ -41,7 +40,12 @@ def show_in_stock(root, main_tree=None):
     search_entry.pack(side="left", padx=(0, 5))
     def do_search(event=None):
         term = search_var.get().strip().lower()
-        filtered = [p for p in db.get_all_products() if p[3] > 0 and (term in str(p[1]).lower() or term in str(p[2]).lower())] if term else [p for p in db.get_all_products() if p[3] > 0]
+        if term:
+            # When searching, filter by name or category
+            filtered = [p for p in db.get_all_products() if term in str(p[1]).lower() or term in str(p[2]).lower()]
+        else:
+            # When no search term, show all products
+            filtered = db.get_all_products()
         tree.delete(*tree.get_children())
         for product in filtered:
             tree.insert("", "end", values=product)
@@ -55,7 +59,7 @@ def show_in_stock(root, main_tree=None):
         tree.column(col, width=100)
     tree.pack(fill="both", expand=True)
     
-    for product in in_stock:
+    for product in products:
         tree.insert("", "end", values=product)
 
     # Add buttons for Add Item and Update Quantity
@@ -66,8 +70,7 @@ def show_in_stock(root, main_tree=None):
         for row in tree.get_children():
             tree.delete(row)
         products = db.get_all_products()
-        in_stock = [p for p in products if p[3] > 0]
-        for product in in_stock:
+        for product in products:
             tree.insert("", "end", values=product)
         if main_tree: # Also refresh the main window tree if available
             populate_tree(main_tree)
